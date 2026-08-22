@@ -1,10 +1,13 @@
 import asyncio
 from logging.config import fileConfig
+from typing import Literal
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.sql.schema import SchemaItem
 
+import app.models  # noqa: F401  ensures all models are registered on Base.metadata
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
@@ -22,10 +25,25 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+# Tables managed by the postgis extension itself, not by our models — never
+# let autogenerate propose dropping these.
+POSTGIS_MANAGED_TABLES = {"spatial_ref_sys"}
+
+
+IncludeObjectType = Literal[
+    "schema", "table", "column", "index", "unique_constraint", "foreign_key_constraint",
+    "check_constraint",
+]
+
+
+def include_object(
+    object: SchemaItem,
+    name: str | None,
+    type_: IncludeObjectType,
+    reflected: bool,
+    compare_to: SchemaItem | None,
+) -> bool:
+    return not (type_ == "table" and name in POSTGIS_MANAGED_TABLES)
 
 
 def run_migrations_offline() -> None:
@@ -46,6 +64,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -53,7 +72,9 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection, target_metadata=target_metadata, include_object=include_object
+    )
 
     with context.begin_transaction():
         context.run_migrations()

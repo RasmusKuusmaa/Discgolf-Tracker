@@ -30,6 +30,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -39,6 +40,7 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 strict = true
 ignore_missing_imports = true
+exclude = ["alembic/versions"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
