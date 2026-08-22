@@ -1,15 +1,22 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.core.security import create_token_pair, hash_password, hash_token, verify_password
+from app.core.security import (
+    create_token_pair,
+    decode_token,
+    hash_password,
+    hash_token,
+    verify_password,
+)
 from app.db.session import get_session
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -73,3 +80,52 @@ async def login(
         raise AppError("account_disabled", "This account is disabled", status.HTTP_403_FORBIDDEN)
 
     return await _issue_tokens(session, user.id)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(
+    payload: RefreshRequest, session: AsyncSession = Depends(get_session)
+) -> TokenResponse:
+    try:
+        claims = decode_token(payload.refresh_token)
+    except ValueError as exc:
+        raise AppError(
+            "invalid_token", "Refresh token is invalid or expired", status.HTTP_401_UNAUTHORIZED
+        ) from exc
+    if claims.get("type") != "refresh":
+        raise AppError(
+            "invalid_token", "Refresh token is invalid or expired", status.HTTP_401_UNAUTHORIZED
+        )
+
+    result = await session.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == hash_token(payload.refresh_token))
+    )
+    token_row = result.scalar_one_or_none()
+    if token_row is None:
+        raise AppError(
+            "invalid_token", "Refresh token is invalid or expired", status.HTTP_401_UNAUTHORIZED
+        )
+
+    if token_row.revoked_at is not None:
+        # This token was already rotated away — presenting it again means it
+        # was stolen from an earlier point in the chain. Revoke every active
+        # token for this user so the thief's session dies too.
+        await session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == token_row.user_id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=datetime.now(UTC))
+        )
+        await session.commit()
+        raise AppError(
+            "token_reuse_detected",
+            "Refresh token reuse detected; all sessions revoked",
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+    if token_row.expires_at < datetime.now(UTC):
+        raise AppError(
+            "invalid_token", "Refresh token is invalid or expired", status.HTTP_401_UNAUTHORIZED
+        )
+
+    token_row.revoked_at = datetime.now(UTC)
+    return await _issue_tokens(session, token_row.user_id)
