@@ -1,8 +1,16 @@
-from sqlalchemy import Boolean, String
+import enum
+
+from sqlalchemy import Boolean, Enum, String
 from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampedUUIDMixin
+
+
+class Visibility(enum.StrEnum):
+    PUBLIC = "public"
+    FRIENDS = "friends"
+    PRIVATE = "private"
 
 
 class User(TimestampedUUIDMixin, Base):
@@ -17,3 +25,11 @@ class User(TimestampedUUIDMixin, Base):
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    profile_visibility: Mapped[Visibility] = mapped_column(
+        Enum(Visibility, name="visibility"), default=Visibility.PUBLIC, nullable=False
+    )
+    stats_visibility: Mapped[Visibility] = mapped_column(
+        Enum(Visibility, name="visibility"), default=Visibility.PUBLIC, nullable=False
+    )
+    allow_friend_requests: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
