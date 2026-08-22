@@ -13,6 +13,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "python-jose[cryptography]>=3.3",
     "geoalchemy2>=0.15",
+    "pydantic[email]>=2.13.4",
 ]
 
 [tool.uv]
@@ -34,6 +35,7 @@ extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]  # FastAPI's Depends(...) default-argument pattern is intentional
 
 [tool.mypy]
 python_version = "3.12"

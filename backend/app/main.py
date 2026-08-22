@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.api.routes.auth import router as auth_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
@@ -40,6 +41,8 @@ def create_app() -> FastAPI:
             await engine.dispose()
 
         return {"version": APP_VERSION, "database_reachable": db_ok}
+
+    app.include_router(auth_router)
 
     return app
 

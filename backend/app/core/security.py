@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,12 @@ JWT_ALGORITHM = "HS256"
 
 def hash_password(password: str) -> str:
     return _hasher.hash(password)
+
+
+def hash_token(token: str) -> str:
+    """Deterministic hash for storing/looking up opaque tokens (e.g. refresh
+    tokens) without keeping the raw secret in the database."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
