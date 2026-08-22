@@ -2,10 +2,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
+from app.core.errors import AppError
 from app.core.slugs import slugify
 from app.db.session import get_session
 from app.models.course import Course
@@ -16,6 +18,10 @@ from app.schemas.course import CourseCreate, CourseRead
 from app.schemas.geo import Coordinates
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+
+def _course_with_layouts_stmt() -> Select[tuple[Course]]:
+    return select(Course).options(selectinload(Course.layouts).selectinload(Layout.holes))
 
 
 def _point(coordinates: Coordinates) -> WKTElement:
@@ -77,5 +83,21 @@ async def create_course(
 
     session.add(course)
     await session.commit()
+
+    return course
+
+
+@router.get("/{course_id}", response_model=CourseRead)
+async def get_course(
+    course_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> Course:
+    result = await session.execute(
+        _course_with_layouts_stmt().where(
+            Course.id == course_id, Course.deleted_at.is_(None)
+        )
+    )
+    course = result.scalar_one_or_none()
+    if course is None:
+        raise AppError("course_not_found", "Course not found", status.HTTP_404_NOT_FOUND)
 
     return course
