@@ -21,7 +21,7 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/health")
-    async def health() -> dict:
+    async def health() -> dict[str, str | bool]:
         engine = create_async_engine(settings.database_url)
         try:
             async with engine.connect() as conn:
