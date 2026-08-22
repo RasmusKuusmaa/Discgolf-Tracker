@@ -1,15 +1,31 @@
+import uuid
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.core.security import create_token_pair, hash_password, hash_token
+from app.core.security import create_token_pair, hash_password, hash_token, verify_password
 from app.db.session import get_session
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
-from app.schemas.auth import RegisterRequest, TokenResponse
+from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+async def _issue_tokens(session: AsyncSession, user_id: uuid.UUID) -> TokenResponse:
+    pair = create_token_pair(user_id)
+    session.add(
+        RefreshToken(
+            id=pair.refresh_token_id,
+            token_hash=hash_token(pair.refresh_token),
+            user_id=user_id,
+            expires_at=pair.refresh_token_expires_at,
+        )
+    )
+    await session.commit()
+    return TokenResponse(access_token=pair.access_token, refresh_token=pair.refresh_token)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -33,15 +49,27 @@ async def register(
     session.add(user)
     await session.flush()
 
-    pair = create_token_pair(user.id)
-    session.add(
-        RefreshToken(
-            id=pair.refresh_token_id,
-            token_hash=hash_token(pair.refresh_token),
-            user_id=user.id,
-            expires_at=pair.refresh_token_expires_at,
+    return await _issue_tokens(session, user.id)
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(
+    payload: LoginRequest, session: AsyncSession = Depends(get_session)
+) -> TokenResponse:
+    result = await session.execute(
+        select(User).where(
+            (User.email == payload.identifier) | (User.username == payload.identifier)
         )
     )
-    await session.commit()
+    user = result.scalar_one_or_none()
 
-    return TokenResponse(access_token=pair.access_token, refresh_token=pair.refresh_token)
+    if user is None or not verify_password(payload.password, user.password_hash):
+        raise AppError(
+            "invalid_credentials",
+            "Incorrect email/username or password",
+            status.HTTP_401_UNAUTHORIZED,
+        )
+    if not user.is_active:
+        raise AppError("account_disabled", "This account is disabled", status.HTTP_403_FORBIDDEN)
+
+    return await _issue_tokens(session, user.id)
