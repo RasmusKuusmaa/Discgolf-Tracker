@@ -1,11 +1,12 @@
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from app.core.rate_limit import limiter
 from app.core.security import (
     create_token_pair,
     decode_token,
@@ -19,6 +20,8 @@ from app.models.user import User
 from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+AUTH_RATE_LIMIT = "10/minute"
 
 
 async def _issue_tokens(session: AsyncSession, user_id: uuid.UUID) -> TokenResponse:
@@ -36,8 +39,9 @@ async def _issue_tokens(session: AsyncSession, user_id: uuid.UUID) -> TokenRespo
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(AUTH_RATE_LIMIT)
 async def register(
-    payload: RegisterRequest, session: AsyncSession = Depends(get_session)
+    request: Request, payload: RegisterRequest, session: AsyncSession = Depends(get_session)
 ) -> TokenResponse:
     existing = await session.execute(
         select(User).where((User.email == payload.email) | (User.username == payload.username))
@@ -60,8 +64,9 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit(AUTH_RATE_LIMIT)
 async def login(
-    payload: LoginRequest, session: AsyncSession = Depends(get_session)
+    request: Request, payload: LoginRequest, session: AsyncSession = Depends(get_session)
 ) -> TokenResponse:
     result = await session.execute(
         select(User).where(
@@ -83,8 +88,9 @@ async def login(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit(AUTH_RATE_LIMIT)
 async def refresh(
-    payload: RefreshRequest, session: AsyncSession = Depends(get_session)
+    request: Request, payload: RefreshRequest, session: AsyncSession = Depends(get_session)
 ) -> TokenResponse:
     try:
         claims = decode_token(payload.refresh_token)
@@ -132,7 +138,10 @@ async def refresh(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(payload: RefreshRequest, session: AsyncSession = Depends(get_session)) -> None:
+@limiter.limit(AUTH_RATE_LIMIT)
+async def logout(
+    request: Request, payload: RefreshRequest, session: AsyncSession = Depends(get_session)
+) -> None:
     result = await session.execute(
         select(RefreshToken).where(RefreshToken.token_hash == hash_token(payload.refresh_token))
     )
