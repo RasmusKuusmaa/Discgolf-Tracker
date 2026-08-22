@@ -129,3 +129,14 @@ async def refresh(
 
     token_row.revoked_at = datetime.now(UTC)
     return await _issue_tokens(session, token_row.user_id)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(payload: RefreshRequest, session: AsyncSession = Depends(get_session)) -> None:
+    result = await session.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == hash_token(payload.refresh_token))
+    )
+    token_row = result.scalar_one_or_none()
+    if token_row is not None and token_row.revoked_at is None:
+        token_row.revoked_at = datetime.now(UTC)
+        await session.commit()
