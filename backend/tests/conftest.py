@@ -11,22 +11,29 @@ from app.main import app
 settings = get_settings()
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/discgolf_test"
 
-test_engine = create_async_engine(TEST_DATABASE_URL)
-TestSessionLocal = async_sessionmaker(bind=test_engine, expire_on_commit=False)
-
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncIterator[AsyncSession]:
     """A session bound to a connection whose outer transaction is rolled back
-    after the test, so no test can leak data into another."""
-    async with test_engine.connect() as connection:
-        transaction = await connection.begin()
-        session = TestSessionLocal(bind=connection)
-        try:
-            yield session
-        finally:
-            await session.close()
-            await transaction.rollback()
+    after the test, so no test can leak data into another.
+
+    The engine is created fresh per test (not at module scope) because
+    pytest-asyncio gives each test its own event loop, and an asyncpg
+    connection pool cannot be reused across loops.
+    """
+    test_engine = create_async_engine(TEST_DATABASE_URL)
+    test_session_local = async_sessionmaker(bind=test_engine, expire_on_commit=False)
+    try:
+        async with test_engine.connect() as connection:
+            transaction = await connection.begin()
+            session = test_session_local(bind=connection)
+            try:
+                yield session
+            finally:
+                await session.close()
+                await transaction.rollback()
+    finally:
+        await test_engine.dispose()
 
 
 @pytest_asyncio.fixture
