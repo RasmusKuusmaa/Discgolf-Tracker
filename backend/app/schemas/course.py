@@ -52,3 +52,28 @@ class CourseRead(BaseModel):
     @classmethod
     def _convert_location(cls, value: Any) -> Any:
         return coordinates_from_geography(value)
+
+
+class CourseSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    city: str | None
+    region: str | None
+    country: str | None
+    location: Coordinates
+    visibility: CourseVisibility
+    status: CourseStatus
+    created_at: datetime
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _convert_location(cls, value: Any) -> Any:
+        return coordinates_from_geography(value)
+
+
+class CourseListResponse(BaseModel):
+    items: list[CourseSummary]
+    next_cursor: str | None = None
