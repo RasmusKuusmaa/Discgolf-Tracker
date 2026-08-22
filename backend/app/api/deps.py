@@ -12,13 +12,7 @@ from app.models.user import User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    session: AsyncSession = Depends(get_session),
-) -> User:
-    if credentials is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
-
+async def _resolve_user(credentials: HTTPAuthorizationCredentials, session: AsyncSession) -> User:
     try:
         claims = decode_token(credentials.credentials)
         user_id = uuid.UUID(claims["sub"])
@@ -34,6 +28,24 @@ async def get_current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
 
     return user
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    if credentials is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+    return await _resolve_user(credentials, session)
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session: AsyncSession = Depends(get_session),
+) -> User | None:
+    if credentials is None:
+        return None
+    return await _resolve_user(credentials, session)
 
 
 async def require_admin(user: User = Depends(get_current_user)) -> User:

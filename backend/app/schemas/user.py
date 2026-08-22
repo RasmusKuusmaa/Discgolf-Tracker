@@ -22,6 +22,18 @@ class UserRead(BaseModel):
     created_at: datetime
 
 
+class UserPublicRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    username: str
+    display_name: str
+    avatar_url: str | None
+    home_city: str | None
+    country: str | None
+    created_at: datetime
+
+
 class UserUpdate(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
