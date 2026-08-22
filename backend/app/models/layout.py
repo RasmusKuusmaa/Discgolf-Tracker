@@ -1,10 +1,15 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampedUUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.course import Course
+    from app.models.hole import Hole
 
 
 class Layout(TimestampedUUIDMixin, Base):
@@ -20,3 +25,8 @@ class Layout(TimestampedUUIDMixin, Base):
     difficulty: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    course: Mapped["Course"] = relationship(back_populates="layouts")
+    holes: Mapped[list["Hole"]] = relationship(
+        back_populates="layout", cascade="all, delete-orphan", order_by="Hole.number"
+    )

@@ -1,11 +1,15 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from geoalchemy2 import Geography
 from sqlalchemy import ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampedUUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.layout import Layout
 
 
 class Hole(TimestampedUUIDMixin, Base):
@@ -26,3 +30,5 @@ class Hole(TimestampedUUIDMixin, Base):
     )
     elevation_delta_m: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    layout: Mapped["Layout"] = relationship(back_populates="holes")
