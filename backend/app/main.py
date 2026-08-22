@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
+from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import request_id_middleware
 
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Disc Golf Tracker API", version=APP_VERSION)
 
     app.middleware("http")(request_id_middleware)
+    register_exception_handlers(app)
 
     app.add_middleware(
         CORSMiddleware,
