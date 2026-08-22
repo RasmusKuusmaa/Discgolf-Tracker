@@ -4,13 +4,18 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.core.middleware import request_id_middleware
 
 APP_VERSION = "0.1.0"
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     settings = get_settings()
     app = FastAPI(title="Disc Golf Tracker API", version=APP_VERSION)
+
+    app.middleware("http")(request_id_middleware)
 
     app.add_middleware(
         CORSMiddleware,
