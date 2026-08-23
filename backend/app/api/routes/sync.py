@@ -29,6 +29,7 @@ from app.schemas.sync import (
     ClientMutation,
     CourseMutationData,
     HoleMutationData,
+    HoleScoreMutationData,
     LayoutMutationData,
     MutationEntityType,
     MutationOp,
@@ -681,6 +682,109 @@ async def _handle_round_player_mutation(
     await session.flush()
 
 
+async def _handle_hole_score_mutation(
+    session: AsyncSession, user: User, mutation: ClientMutation
+) -> None:
+    hole_score = await session.get(HoleScore, mutation.entity_id)
+
+    if mutation.op == MutationOp.DELETE:
+        if hole_score is None:
+            raise AppError("not_found", "Hole score not found", status.HTTP_404_NOT_FOUND)
+        round_ = await session.get(Round, hole_score.round_id)
+        if round_ is not None:
+            _check_owner(round_.created_by_id, user)
+            if round_.status != RoundStatus.IN_PROGRESS:
+                raise AppError(
+                    "round_not_in_progress",
+                    "Cannot modify scores on a round that is not in progress",
+                    status.HTTP_409_CONFLICT,
+                )
+        _check_stale(mutation.updated_at, hole_score.updated_at)
+        hole_score.deleted_at = mutation.updated_at
+        hole_score.updated_at = mutation.updated_at
+        return
+
+    data = HoleScoreMutationData.model_validate(mutation.data)
+
+    if hole_score is None:
+        if mutation.op == MutationOp.UPDATE:
+            raise AppError("not_found", "Hole score not found", status.HTTP_404_NOT_FOUND)
+        if (
+            data.round_id is None
+            or data.round_player_id is None
+            or data.hole_id is None
+            or data.strokes is None
+        ):
+            raise AppError(
+                "invalid_data",
+                "round_id, round_player_id, hole_id and strokes are required",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        round_ = await session.get(Round, data.round_id)
+        if round_ is None:
+            raise AppError("round_not_found", "Round not found", status.HTTP_404_NOT_FOUND)
+        _check_owner(round_.created_by_id, user)
+        if round_.status != RoundStatus.IN_PROGRESS:
+            raise AppError(
+                "round_not_in_progress",
+                "Cannot write scores to a round that is not in progress",
+                status.HTTP_409_CONFLICT,
+            )
+        player = await session.get(RoundPlayer, data.round_player_id)
+        if player is None or player.round_id != data.round_id:
+            raise AppError(
+                "player_not_in_round",
+                "round_player_id is not on this round",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        hole = await session.get(Hole, data.hole_id)
+        if hole is None or hole.layout_id != round_.layout_id:
+            raise AppError(
+                "hole_not_in_layout",
+                "hole_id is not part of this round's layout",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        hole_score = HoleScore(
+            id=mutation.entity_id,
+            round_id=data.round_id,
+            round_player_id=data.round_player_id,
+            hole_id=data.hole_id,
+            strokes=data.strokes,
+            penalty_strokes=data.penalty_strokes or 0,
+            is_circle_hit=data.is_circle_hit,
+            is_fairway_hit=data.is_fairway_hit,
+            notes=data.notes,
+            updated_at=mutation.updated_at,
+        )
+        session.add(hole_score)
+        await session.flush()
+        return
+
+    round_ = await session.get(Round, hole_score.round_id)
+    if round_ is not None:
+        _check_owner(round_.created_by_id, user)
+        if round_.status != RoundStatus.IN_PROGRESS:
+            raise AppError(
+                "round_not_in_progress",
+                "Cannot modify scores on a round that is not in progress",
+                status.HTTP_409_CONFLICT,
+            )
+    _check_stale(mutation.updated_at, hole_score.updated_at)
+
+    if data.strokes is not None:
+        hole_score.strokes = data.strokes
+    if data.penalty_strokes is not None:
+        hole_score.penalty_strokes = data.penalty_strokes
+    if data.is_circle_hit is not None:
+        hole_score.is_circle_hit = data.is_circle_hit
+    if data.is_fairway_hit is not None:
+        hole_score.is_fairway_hit = data.is_fairway_hit
+    if data.notes is not None:
+        hole_score.notes = data.notes
+    hole_score.updated_at = mutation.updated_at
+    await session.flush()
+
+
 _MUTATION_HANDLERS: dict[
     MutationEntityType, Callable[[AsyncSession, User, ClientMutation], Awaitable[None]]
 ] = {
@@ -689,6 +793,7 @@ _MUTATION_HANDLERS: dict[
     MutationEntityType.HOLE: _handle_hole_mutation,
     MutationEntityType.ROUND: _handle_round_mutation,
     MutationEntityType.ROUND_PLAYER: _handle_round_player_mutation,
+    MutationEntityType.HOLE_SCORE: _handle_hole_score_mutation,
 }
 
 
