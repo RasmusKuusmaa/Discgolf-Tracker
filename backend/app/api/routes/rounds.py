@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
@@ -8,10 +9,13 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_user
 from app.core.errors import AppError
 from app.db.session import get_session
+from app.models.hole import Hole
+from app.models.hole_score import HoleScore
 from app.models.layout import Layout
 from app.models.round import Round
 from app.models.round_player import RoundPlayer
 from app.models.user import User
+from app.schemas.hole_score import HoleScoreUpsert, RoundScoresResponse, RoundScoresUpsert
 from app.schemas.round import RoundCreate, RoundRead
 
 router = APIRouter(prefix="/rounds", tags=["rounds"])
@@ -19,6 +23,22 @@ router = APIRouter(prefix="/rounds", tags=["rounds"])
 
 def _round_with_players_stmt() -> Select[tuple[Round]]:
     return select(Round).options(selectinload(Round.players))
+
+
+async def _get_owned_round(session: AsyncSession, round_id: uuid.UUID, user: User) -> Round:
+    result = await session.execute(
+        select(Round).where(Round.id == round_id, Round.deleted_at.is_(None))
+    )
+    round_ = result.scalar_one_or_none()
+    if round_ is None:
+        raise AppError("round_not_found", "Round not found", status.HTTP_404_NOT_FOUND)
+    if round_.created_by_id != user.id:
+        raise AppError(
+            "not_round_owner",
+            "Only the round creator can do this",
+            status.HTTP_403_FORBIDDEN,
+        )
+    return round_
 
 
 @router.post("", response_model=RoundRead, status_code=status.HTTP_201_CREATED)
@@ -70,3 +90,78 @@ async def create_round(
 
     result = await session.execute(_round_with_players_stmt().where(Round.id == round_.id))
     return result.scalar_one()
+
+
+async def _validate_scorecard_refs(
+    session: AsyncSession, round_: Round, scores: list[HoleScoreUpsert]
+) -> None:
+    player_ids = {s.round_player_id for s in scores}
+    hole_ids = {s.hole_id for s in scores}
+
+    valid_players = await session.execute(
+        select(RoundPlayer.id).where(
+            RoundPlayer.round_id == round_.id, RoundPlayer.id.in_(player_ids)
+        )
+    )
+    missing_players = player_ids - set(valid_players.scalars())
+    if missing_players:
+        raise AppError(
+            "player_not_in_round",
+            f"round_player_id(s) not on this round: "
+            f"{', '.join(str(p) for p in missing_players)}",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+
+    valid_holes = await session.execute(
+        select(Hole.id).where(Hole.layout_id == round_.layout_id, Hole.id.in_(hole_ids))
+    )
+    missing_holes = hole_ids - set(valid_holes.scalars())
+    if missing_holes:
+        raise AppError(
+            "hole_not_in_layout",
+            f"hole_id(s) not part of this round's layout: "
+            f"{', '.join(str(h) for h in missing_holes)}",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+
+
+@router.put("/{round_id}/scores", response_model=RoundScoresResponse)
+async def upsert_round_scores(
+    round_id: uuid.UUID,
+    payload: RoundScoresUpsert,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> RoundScoresResponse:
+    round_ = await _get_owned_round(session, round_id, user)
+    await _validate_scorecard_refs(session, round_, payload.scores)
+
+    for score_in in payload.scores:
+        existing = await session.execute(
+            select(HoleScore).where(
+                HoleScore.round_player_id == score_in.round_player_id,
+                HoleScore.hole_id == score_in.hole_id,
+            )
+        )
+        hole_score = existing.scalar_one_or_none()
+
+        if hole_score is None:
+            hole_score = HoleScore(
+                id=score_in.id,
+                round_id=round_.id,
+                round_player_id=score_in.round_player_id,
+                hole_id=score_in.hole_id,
+            )
+            session.add(hole_score)
+
+        hole_score.strokes = score_in.strokes
+        hole_score.penalty_strokes = score_in.penalty_strokes
+        hole_score.is_circle_hit = score_in.is_circle_hit
+        hole_score.is_fairway_hit = score_in.is_fairway_hit
+        hole_score.notes = score_in.notes
+
+    await session.commit()
+
+    all_scores = await session.execute(
+        select(HoleScore).join(RoundPlayer).where(RoundPlayer.round_id == round_.id)
+    )
+    return RoundScoresResponse(scores=list(all_scores.scalars()))
