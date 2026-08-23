@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
@@ -44,11 +45,12 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        errors = [{k: v for k, v in error.items() if k != "ctx"} for error in exc.errors()]
         return _error_response(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "validation_error",
             "Request validation failed",
-            exc.errors(),
+            jsonable_encoder(errors),
         )
 
     @app.exception_handler(RateLimitExceeded)
