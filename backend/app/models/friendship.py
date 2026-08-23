@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,9 @@ class FriendshipStatus(enum.StrEnum):
 
 class Friendship(TimestampedUUIDMixin, Base):
     __tablename__ = "friendships"
+    __table_args__ = (
+        CheckConstraint("requester_id != addressee_id", name="ck_friendships_no_self_friendship"),
+    )
 
     requester_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
