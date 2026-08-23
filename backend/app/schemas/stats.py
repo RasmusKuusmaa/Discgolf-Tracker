@@ -60,3 +60,14 @@ class HoleStats(BaseModel):
     average_strokes: float | None
     best_strokes: int | None
     score_distribution: ScoreDistribution
+
+
+class TrendPoint(BaseModel):
+    period_start: datetime
+    rounds_played: int
+    avg_score_to_par: float
+
+
+class TrendResponse(BaseModel):
+    period: str
+    points: list[TrendPoint]

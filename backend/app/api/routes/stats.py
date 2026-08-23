@@ -1,8 +1,8 @@
 import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +24,11 @@ from app.schemas.stats import (
     LayoutTrendPoint,
     ScoreDistribution,
     StatsSummary,
+    TrendPoint,
+    TrendResponse,
 )
+
+_VALID_TREND_PERIODS = {"week", "month", "year"}
 
 router = APIRouter(prefix="/stats/me", tags=["stats"])
 
@@ -224,3 +228,66 @@ async def get_hole_stats(
         best_strokes=min(totals) if totals else None,
         score_distribution=distribution,
     )
+
+
+def _period_start(completed_at: datetime, period: str) -> datetime:
+    day_start = completed_at.replace(hour=0, minute=0, second=0, microsecond=0)
+    if period == "year":
+        return day_start.replace(month=1, day=1)
+    if period == "month":
+        return day_start.replace(day=1)
+    return day_start - timedelta(days=day_start.weekday())
+
+
+@router.get("/trend", response_model=TrendResponse)
+async def get_trend(
+    period: str = Query(default="month"),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> TrendResponse:
+    if period not in _VALID_TREND_PERIODS:
+        raise AppError(
+            "invalid_period",
+            f"period must be one of {sorted(_VALID_TREND_PERIODS)}",
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    rows_stmt = (
+        select(
+            Round.id,
+            Round.completed_at,
+            HoleScore.strokes,
+            HoleScore.penalty_strokes,
+            Hole.par,
+        )
+        .select_from(Round)
+        .join(RoundPlayer, RoundPlayer.round_id == Round.id)
+        .join(HoleScore, HoleScore.round_player_id == RoundPlayer.id)
+        .join(Hole, Hole.id == HoleScore.hole_id)
+        .where(RoundPlayer.user_id == user.id, Round.status == RoundStatus.COMPLETED)
+    )
+    rows = (await session.execute(rows_stmt)).all()
+
+    round_totals: dict[uuid.UUID, int] = defaultdict(int)
+    round_completed_at: dict[uuid.UUID, datetime] = {}
+    for round_id, completed_at, strokes, penalty_strokes, par in rows:
+        round_totals[round_id] += strokes + penalty_strokes - par
+        round_completed_at[round_id] = completed_at
+
+    bucket_totals: dict[datetime, int] = defaultdict(int)
+    bucket_counts: dict[datetime, int] = defaultdict(int)
+    for round_id, total in round_totals.items():
+        bucket = _period_start(round_completed_at[round_id], period)
+        bucket_totals[bucket] += total
+        bucket_counts[bucket] += 1
+
+    points = [
+        TrendPoint(
+            period_start=bucket,
+            rounds_played=bucket_counts[bucket],
+            avg_score_to_par=bucket_totals[bucket] / bucket_counts[bucket],
+        )
+        for bucket in sorted(bucket_totals)
+    ]
+
+    return TrendResponse(period=period, points=points)
