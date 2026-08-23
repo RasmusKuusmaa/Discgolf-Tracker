@@ -53,5 +53,6 @@ class RoundRead(BaseModel):
     is_practice: bool
     weather_note: str | None
     client_generated: bool
+    is_partial: bool
     created_at: datetime
     players: list[RoundPlayerRead] = []

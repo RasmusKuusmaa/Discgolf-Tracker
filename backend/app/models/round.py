@@ -36,6 +36,7 @@ class Round(TimestampedUUIDMixin, Base):
     is_practice: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     weather_note: Mapped[str | None] = mapped_column(String, nullable=True)
     client_generated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_partial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     layout: Mapped["Layout"] = relationship()
     created_by: Mapped["User"] = relationship()

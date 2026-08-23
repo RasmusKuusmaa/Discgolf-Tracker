@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,7 +12,7 @@ from app.db.session import get_session
 from app.models.hole import Hole
 from app.models.hole_score import HoleScore
 from app.models.layout import Layout
-from app.models.round import Round
+from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user import User
 from app.schemas.hole_score import HoleScoreUpsert, RoundScoresResponse, RoundScoresUpsert
@@ -165,3 +165,36 @@ async def upsert_round_scores(
         select(HoleScore).join(RoundPlayer).where(RoundPlayer.round_id == round_.id)
     )
     return RoundScoresResponse(scores=list(all_scores.scalars()))
+
+
+@router.post("/{round_id}/complete", response_model=RoundRead)
+async def complete_round(
+    round_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Round:
+    round_ = await _get_owned_round(session, round_id, user)
+    if round_.status != RoundStatus.IN_PROGRESS:
+        raise AppError(
+            "round_not_in_progress", "Round is not in progress", status.HTTP_409_CONFLICT
+        )
+
+    player_count = await session.execute(
+        select(func.count(RoundPlayer.id)).where(RoundPlayer.round_id == round_.id)
+    )
+    hole_count = await session.execute(
+        select(func.count(Hole.id)).where(Hole.layout_id == round_.layout_id)
+    )
+    expected_scores = player_count.scalar_one() * hole_count.scalar_one()
+
+    actual_scores = await session.execute(
+        select(func.count(HoleScore.id)).where(HoleScore.round_id == round_.id)
+    )
+
+    round_.is_partial = actual_scores.scalar_one() < expected_scores
+    round_.status = RoundStatus.COMPLETED
+    round_.completed_at = datetime.now(UTC)
+    await session.commit()
+
+    result = await session.execute(_round_with_players_stmt().where(Round.id == round_.id))
+    return result.scalar_one()
