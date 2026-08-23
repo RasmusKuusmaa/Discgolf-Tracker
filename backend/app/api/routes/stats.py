@@ -18,6 +18,7 @@ from app.models.round_player import RoundPlayer
 from app.models.user import User
 from app.schemas.stats import (
     BestRound,
+    HoleStats,
     LayoutHoleAverage,
     LayoutStats,
     LayoutTrendPoint,
@@ -182,4 +183,44 @@ async def get_layout_stats(
         average_score_to_par=average_score_to_par,
         trend=trend,
         hole_averages=hole_averages,
+    )
+
+
+@router.get("/holes/{hole_id}", response_model=HoleStats)
+async def get_hole_stats(
+    hole_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> HoleStats:
+    hole = await session.get(Hole, hole_id)
+    if hole is None:
+        raise AppError("hole_not_found", "Hole not found", status.HTTP_404_NOT_FOUND)
+
+    rows_stmt = (
+        select(HoleScore.strokes, HoleScore.penalty_strokes)
+        .select_from(HoleScore)
+        .join(RoundPlayer, RoundPlayer.id == HoleScore.round_player_id)
+        .join(Round, Round.id == RoundPlayer.round_id)
+        .where(
+            HoleScore.hole_id == hole_id,
+            RoundPlayer.user_id == user.id,
+            Round.status == RoundStatus.COMPLETED,
+        )
+    )
+    rows = (await session.execute(rows_stmt)).all()
+
+    distribution = ScoreDistribution()
+    totals = []
+    for strokes, penalty_strokes in rows:
+        totals.append(strokes + penalty_strokes)
+        term = score_term(strokes, penalty_strokes, hole.par)
+        setattr(distribution, term, getattr(distribution, term) + 1)
+
+    return HoleStats(
+        hole_id=hole_id,
+        par=hole.par,
+        attempts=len(totals),
+        average_strokes=(sum(totals) / len(totals)) if totals else None,
+        best_strokes=min(totals) if totals else None,
+        score_distribution=distribution,
     )

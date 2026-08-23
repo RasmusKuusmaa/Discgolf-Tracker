@@ -51,3 +51,12 @@ class LayoutStats(BaseModel):
     average_score_to_par: float | None
     trend: list[LayoutTrendPoint]
     hole_averages: list[LayoutHoleAverage]
+
+
+class HoleStats(BaseModel):
+    hole_id: uuid.UUID
+    par: int
+    attempts: int
+    average_strokes: float | None
+    best_strokes: int | None
+    score_distribution: ScoreDistribution
