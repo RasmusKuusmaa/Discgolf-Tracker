@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.core.errors import AppError
-from app.core.geo import to_point
+from app.core.geo import haversine_distance_m, to_point
 from app.core.slugs import slugify
 from app.db.session import get_session
 from app.models.achievement import Achievement
@@ -28,6 +28,7 @@ from app.schemas.geo import coordinates_from_geography
 from app.schemas.sync import (
     ClientMutation,
     CourseMutationData,
+    HoleMutationData,
     LayoutMutationData,
     MutationEntityType,
     MutationOp,
@@ -433,11 +434,111 @@ async def _handle_layout_mutation(
     await session.flush()
 
 
+async def _recompute_layout_totals(session: AsyncSession, layout_id: uuid.UUID) -> None:
+    layout = await session.get(Layout, layout_id)
+    if layout is None:
+        return
+    totals = await session.execute(
+        select(
+            func.count(Hole.id),
+            func.coalesce(func.sum(Hole.par), 0),
+            func.sum(Hole.distance_m),
+        ).where(Hole.layout_id == layout_id, Hole.deleted_at.is_(None))
+    )
+    hole_count, par_total, total_distance_m = totals.one()
+    layout.hole_count = hole_count
+    layout.par_total = par_total
+    layout.total_distance_m = float(total_distance_m) if total_distance_m is not None else None
+
+
+async def _handle_hole_mutation(
+    session: AsyncSession, user: User, mutation: ClientMutation
+) -> None:
+    hole = await session.get(Hole, mutation.entity_id)
+
+    if mutation.op == MutationOp.DELETE:
+        if hole is None:
+            raise AppError("not_found", "Hole not found", status.HTTP_404_NOT_FOUND)
+        layout = await session.get(Layout, hole.layout_id)
+        if layout is not None:
+            course = await session.get(Course, layout.course_id)
+            if course is not None:
+                _check_owner(course.created_by_id, user)
+        _check_stale(mutation.updated_at, hole.updated_at)
+        hole.deleted_at = mutation.updated_at
+        hole.updated_at = mutation.updated_at
+        await session.flush()
+        await _recompute_layout_totals(session, hole.layout_id)
+        return
+
+    data = HoleMutationData.model_validate(mutation.data)
+
+    if hole is None:
+        if mutation.op == MutationOp.UPDATE:
+            raise AppError("not_found", "Hole not found", status.HTTP_404_NOT_FOUND)
+        if data.layout_id is None or data.number is None or data.par is None:
+            raise AppError(
+                "invalid_data",
+                "layout_id, number and par are required to create a hole",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        layout = await session.get(Layout, data.layout_id)
+        if layout is None:
+            raise AppError("layout_not_found", "Layout not found", status.HTTP_404_NOT_FOUND)
+        course = await session.get(Course, layout.course_id)
+        if course is not None:
+            _check_owner(course.created_by_id, user)
+        distance_m = data.distance_m
+        if distance_m is None and data.tee_location and data.basket_location:
+            distance_m = haversine_distance_m(data.tee_location, data.basket_location)
+        hole = Hole(
+            id=mutation.entity_id,
+            layout_id=data.layout_id,
+            number=data.number,
+            par=data.par,
+            distance_m=distance_m,
+            tee_location=to_point(data.tee_location) if data.tee_location else None,
+            basket_location=to_point(data.basket_location) if data.basket_location else None,
+            elevation_delta_m=data.elevation_delta_m,
+            notes=data.notes,
+            updated_at=mutation.updated_at,
+        )
+        session.add(hole)
+        await session.flush()
+        await _recompute_layout_totals(session, data.layout_id)
+        return
+
+    layout = await session.get(Layout, hole.layout_id)
+    if layout is not None:
+        course = await session.get(Course, layout.course_id)
+        if course is not None:
+            _check_owner(course.created_by_id, user)
+    _check_stale(mutation.updated_at, hole.updated_at)
+
+    if data.par is not None:
+        hole.par = data.par
+    if data.distance_m is not None:
+        hole.distance_m = data.distance_m
+    if data.tee_location is not None:
+        hole.tee_location = cast(str, to_point(data.tee_location))
+    if data.basket_location is not None:
+        hole.basket_location = cast(str, to_point(data.basket_location))
+    if data.elevation_delta_m is not None:
+        hole.elevation_delta_m = data.elevation_delta_m
+    if data.notes is not None:
+        hole.notes = data.notes
+    hole.updated_at = mutation.updated_at
+    await session.flush()
+    if data.par is not None or data.distance_m is not None:
+        await _recompute_layout_totals(session, hole.layout_id)
+
+
 _MUTATION_HANDLERS: dict[
     MutationEntityType, Callable[[AsyncSession, User, ClientMutation], Awaitable[None]]
 ] = {
     MutationEntityType.COURSE: _handle_course_mutation,
     MutationEntityType.LAYOUT: _handle_layout_mutation,
+    MutationEntityType.HOLE: _handle_hole_mutation,
 }
 
 
