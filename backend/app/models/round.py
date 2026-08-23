@@ -11,6 +11,7 @@ from app.db.base import Base, TimestampedUUIDMixin
 
 if TYPE_CHECKING:
     from app.models.layout import Layout
+    from app.models.round_player import RoundPlayer
     from app.models.user import User
 
 
@@ -38,3 +39,6 @@ class Round(TimestampedUUIDMixin, Base):
 
     layout: Mapped["Layout"] = relationship()
     created_by: Mapped["User"] = relationship()
+    players: Mapped[list["RoundPlayer"]] = relationship(
+        back_populates="round", cascade="all, delete-orphan", order_by="RoundPlayer.position"
+    )
