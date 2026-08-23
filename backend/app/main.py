@@ -14,6 +14,7 @@ from app.api.routes.layouts import router as layouts_router
 from app.api.routes.leaderboards import router as leaderboards_router
 from app.api.routes.rounds import router as rounds_router
 from app.api.routes.stats import router as stats_router
+from app.api.routes.sync import router as sync_router
 from app.api.routes.users import router as users_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
     app.include_router(feed_router)
     app.include_router(leaderboards_router)
     app.include_router(gamification_router)
+    app.include_router(sync_router)
 
     return app
 
