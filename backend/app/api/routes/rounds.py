@@ -17,7 +17,13 @@ from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user import User
 from app.schemas.hole_score import HoleScoreUpsert, RoundScoresResponse, RoundScoresUpsert
-from app.schemas.round import RoundCreate, RoundListResponse, RoundRead
+from app.schemas.round import (
+    RoundCreate,
+    RoundDetailResponse,
+    RoundListResponse,
+    RoundRead,
+    ScorecardPlayer,
+)
 
 router = APIRouter(prefix="/rounds", tags=["rounds"])
 
@@ -142,6 +148,53 @@ async def list_rounds(
     next_cursor = _encode_cursor(rounds[-1].id) if has_more and rounds else None
 
     return RoundListResponse(items=rounds, next_cursor=next_cursor)
+
+
+@router.get("/{round_id}", response_model=RoundDetailResponse)
+async def get_round(
+    round_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> RoundDetailResponse:
+    round_ = await _get_owned_round(session, round_id, user)
+
+    result = await session.execute(
+        select(Round)
+        .options(
+            selectinload(Round.layout).selectinload(Layout.holes),
+            selectinload(Round.players).selectinload(RoundPlayer.hole_scores),
+        )
+        .where(Round.id == round_.id)
+    )
+    round_ = result.scalar_one()
+
+    players = [
+        ScorecardPlayer(
+            id=player.id,
+            user_id=player.user_id,
+            guest_name=player.guest_name,
+            position=player.position,
+            is_scorekeeper=player.is_scorekeeper,
+            scores=list(player.hole_scores),
+        )
+        for player in round_.players
+    ]
+
+    return RoundDetailResponse(
+        id=round_.id,
+        layout_id=round_.layout_id,
+        created_by_id=round_.created_by_id,
+        started_at=round_.started_at,
+        completed_at=round_.completed_at,
+        status=round_.status,
+        is_practice=round_.is_practice,
+        weather_note=round_.weather_note,
+        client_generated=round_.client_generated,
+        is_partial=round_.is_partial,
+        created_at=round_.created_at,
+        layout=round_.layout,
+        players=players,
+    )
 
 
 async def _validate_scorecard_refs(

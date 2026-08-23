@@ -5,6 +5,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.round import RoundStatus
+from app.schemas.layout import LayoutRead
 
 
 class RoundPlayerCreate(BaseModel):
@@ -73,3 +74,43 @@ class RoundSummary(BaseModel):
 class RoundListResponse(BaseModel):
     items: list[RoundSummary]
     next_cursor: str | None = None
+
+
+class ScorecardHoleScore(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    hole_id: uuid.UUID
+    strokes: int
+    penalty_strokes: int
+    is_circle_hit: bool | None
+    is_fairway_hit: bool | None
+    notes: str | None
+
+
+class ScorecardPlayer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    user_id: uuid.UUID | None
+    guest_name: str | None
+    position: int
+    is_scorekeeper: bool
+    scores: list[ScorecardHoleScore] = []
+
+
+class RoundDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    layout_id: uuid.UUID
+    created_by_id: uuid.UUID
+    started_at: datetime
+    completed_at: datetime | None
+    status: RoundStatus
+    is_practice: bool
+    weather_note: str | None
+    client_generated: bool
+    is_partial: bool
+    created_at: datetime
+    layout: LayoutRead
+    players: list[ScorecardPlayer] = []
