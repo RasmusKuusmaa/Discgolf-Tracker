@@ -76,6 +76,30 @@ class RoundListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class RewardedAchievement(BaseModel):
+    code: str
+    name: str
+    icon: str
+    xp_reward: int
+
+
+class RewardedPersonalBest(BaseModel):
+    layout_id: uuid.UUID
+    best_score_to_par: int
+
+
+class RoundRewards(BaseModel):
+    xp_gained: int
+    level_up: bool
+    new_level: int
+    new_achievements: list[RewardedAchievement] = []
+    new_personal_bests: list[RewardedPersonalBest] = []
+
+
+class RoundCompleteResponse(RoundRead):
+    rewards: RoundRewards
+
+
 class ScorecardHoleScore(BaseModel):
     hole_id: uuid.UUID
     hole_number: int

@@ -35,6 +35,13 @@ async def award_xp(
     session.add(XpEvent(user_id=user_id, source=source, amount=amount, ref_id=ref_id))
 
 
+async def get_total_xp(session: AsyncSession, user_id: uuid.UUID) -> int:
+    result = await session.execute(
+        select(func.coalesce(func.sum(XpEvent.amount), 0)).where(XpEvent.user_id == user_id)
+    )
+    return result.scalar_one()
+
+
 async def update_play_streak(
     session: AsyncSession, user_id: uuid.UUID, played_on: date
 ) -> PlayStreak:

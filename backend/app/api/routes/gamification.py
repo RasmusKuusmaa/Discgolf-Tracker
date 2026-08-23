@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.gamification import get_total_xp
 from app.core.leveling import level_for_xp, xp_to_next_level
 from app.db.session import get_session
 from app.models.achievement import Achievement
 from app.models.play_streak import PlayStreak
 from app.models.user import User
 from app.models.user_achievement import UserAchievement
-from app.models.xp_event import XpEvent
 from app.schemas.gamification import AchievementSummary, GamificationProfile
 
 router = APIRouter(prefix="/gamification", tags=["gamification"])
@@ -20,11 +20,7 @@ async def get_gamification_profile(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> GamificationProfile:
-    total_xp = (
-        await session.execute(
-            select(func.coalesce(func.sum(XpEvent.amount), 0)).where(XpEvent.user_id == user.id)
-        )
-    ).scalar_one()
+    total_xp = await get_total_xp(session, user.id)
 
     streak = (
         await session.execute(select(PlayStreak).where(PlayStreak.user_id == user.id))

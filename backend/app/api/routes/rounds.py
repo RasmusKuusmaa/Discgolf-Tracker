@@ -14,8 +14,10 @@ from app.core.gamification import (
     award_participation_xp_for_round,
     award_xp,
     evaluate_achievements_for_round,
+    get_total_xp,
     update_play_streaks_for_round,
 )
+from app.core.leveling import level_for_xp
 from app.core.scoring import score_term
 from app.db.session import get_session
 from app.models.hole import Hole
@@ -28,10 +30,14 @@ from app.models.user import User
 from app.models.user_layout_stats import UserLayoutStats
 from app.schemas.hole_score import HoleScoreUpsert, RoundScoresResponse, RoundScoresUpsert
 from app.schemas.round import (
+    RewardedAchievement,
+    RewardedPersonalBest,
+    RoundCompleteResponse,
     RoundCreate,
     RoundDetailResponse,
     RoundListResponse,
     RoundRead,
+    RoundRewards,
     ScorecardHoleScore,
     ScorecardPlayer,
 )
@@ -319,12 +325,12 @@ async def upsert_round_scores(
     return RoundScoresResponse(scores=list(all_scores.scalars()))
 
 
-@router.post("/{round_id}/complete", response_model=RoundRead)
+@router.post("/{round_id}/complete", response_model=RoundCompleteResponse)
 async def complete_round(
     round_id: uuid.UUID,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> Round:
+) -> RoundCompleteResponse:
     round_ = await _get_owned_round(session, round_id, user)
     if round_.status != RoundStatus.IN_PROGRESS:
         raise AppError(
@@ -347,16 +353,60 @@ async def complete_round(
     round_.status = RoundStatus.COMPLETED
     round_.completed_at = datetime.now(UTC)
 
+    xp_before = await get_total_xp(session, user.id)
+    new_achievements: list[RewardedAchievement] = []
+    new_personal_bests: list[RewardedPersonalBest] = []
+
     if not round_.is_partial and not round_.is_practice:
         await _update_stats_after_completion(session, round_)
         await update_play_streaks_for_round(session, round_)
         await award_participation_xp_for_round(session, round_)
-        await evaluate_achievements_for_round(session, round_)
+        newly_unlocked_by_user = await evaluate_achievements_for_round(session, round_)
+
+        new_achievements = [
+            RewardedAchievement(
+                code=achievement.code,
+                name=achievement.name,
+                icon=achievement.icon,
+                xp_reward=achievement.xp_reward,
+            )
+            for achievement in newly_unlocked_by_user.get(user.id, [])
+        ]
+
+        pb_result = await session.execute(
+            select(PersonalBest).where(
+                PersonalBest.user_id == user.id, PersonalBest.layout_id == round_.layout_id
+            )
+        )
+        personal_best = pb_result.scalar_one_or_none()
+        if personal_best is not None and personal_best.round_id == round_.id:
+            new_personal_bests = [
+                RewardedPersonalBest(
+                    layout_id=round_.layout_id, best_score_to_par=personal_best.best_score_to_par
+                )
+            ]
+
+    xp_after = await get_total_xp(session, user.id)
+    level_before = level_for_xp(xp_before)
+    level_after = level_for_xp(xp_after)
 
     await session.commit()
 
     result = await session.execute(_round_with_players_stmt().where(Round.id == round_.id))
-    return result.scalar_one()
+    round_obj = result.scalar_one()
+
+    rewards = RoundRewards(
+        xp_gained=xp_after - xp_before,
+        level_up=level_after > level_before,
+        new_level=level_after,
+        new_achievements=new_achievements,
+        new_personal_bests=new_personal_bests,
+    )
+
+    response = RoundCompleteResponse(
+        **RoundRead.model_validate(round_obj).model_dump(), rewards=rewards
+    )
+    return response
 
 
 async def _update_personal_best(
