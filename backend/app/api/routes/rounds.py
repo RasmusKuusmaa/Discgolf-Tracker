@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.core.errors import AppError
+from app.core.gamification import evaluate_achievements_for_round
 from app.core.scoring import score_term
 from app.db.session import get_session
 from app.models.hole import Hole
@@ -342,6 +343,7 @@ async def complete_round(
 
     if not round_.is_partial and not round_.is_practice:
         await _update_stats_after_completion(session, round_)
+        await evaluate_achievements_for_round(session, round_)
 
     await session.commit()
 
