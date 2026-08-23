@@ -142,6 +142,7 @@ class MutationOp(enum.StrEnum):
 
 
 class ClientMutation(BaseModel):
+    mutation_id: uuid.UUID
     entity_type: MutationEntityType
     op: MutationOp
     entity_id: uuid.UUID

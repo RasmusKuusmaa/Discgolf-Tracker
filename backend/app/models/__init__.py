@@ -5,6 +5,7 @@ from app.models.friendship import Friendship
 from app.models.hole import Hole
 from app.models.hole_score import HoleScore
 from app.models.layout import Layout
+from app.models.mutation_log import MutationLog
 from app.models.personal_best import PersonalBest
 from app.models.play_streak import PlayStreak
 from app.models.refresh_token import RefreshToken
@@ -23,6 +24,7 @@ __all__ = [
     "Hole",
     "HoleScore",
     "Layout",
+    "MutationLog",
     "PersonalBest",
     "PlayStreak",
     "RefreshToken",

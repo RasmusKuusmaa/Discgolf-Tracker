@@ -20,6 +20,7 @@ from app.models.friendship import Friendship
 from app.models.hole import Hole
 from app.models.hole_score import HoleScore
 from app.models.layout import Layout
+from app.models.mutation_log import MutationLog
 from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user import User
@@ -797,31 +798,65 @@ _MUTATION_HANDLERS: dict[
 }
 
 
+async def _find_replayed_result(
+    session: AsyncSession, user_id: uuid.UUID, mutation_id: uuid.UUID
+) -> MutationLog | None:
+    result = await session.execute(
+        select(MutationLog).where(
+            MutationLog.user_id == user_id, MutationLog.mutation_id == mutation_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def _apply_mutation(
     session: AsyncSession, user: User, mutation: ClientMutation
 ) -> MutationResult:
+    replayed = await _find_replayed_result(session, user.id, mutation.mutation_id)
+    if replayed is not None:
+        return MutationResult(
+            entity_type=mutation.entity_type,
+            entity_id=mutation.entity_id,
+            accepted=replayed.accepted,
+            reason=replayed.reason,
+        )
+
     handler = _MUTATION_HANDLERS.get(mutation.entity_type)
     if handler is None:
-        return MutationResult(
+        result = MutationResult(
             entity_type=mutation.entity_type,
             entity_id=mutation.entity_id,
             accepted=False,
             reason="unsupported_entity_type",
         )
-    try:
-        async with session.begin_nested():
-            await handler(session, user, mutation)
-    except (AppError, IntegrityError) as exc:
-        reason = exc.code if isinstance(exc, AppError) else "integrity_conflict"
-        return MutationResult(
-            entity_type=mutation.entity_type,
+    else:
+        try:
+            async with session.begin_nested():
+                await handler(session, user, mutation)
+        except (AppError, IntegrityError) as exc:
+            reason = exc.code if isinstance(exc, AppError) else "integrity_conflict"
+            result = MutationResult(
+                entity_type=mutation.entity_type,
+                entity_id=mutation.entity_id,
+                accepted=False,
+                reason=reason,
+            )
+        else:
+            result = MutationResult(
+                entity_type=mutation.entity_type, entity_id=mutation.entity_id, accepted=True
+            )
+
+    session.add(
+        MutationLog(
+            user_id=user.id,
+            mutation_id=mutation.mutation_id,
+            entity_type=mutation.entity_type.value,
             entity_id=mutation.entity_id,
-            accepted=False,
-            reason=reason,
+            accepted=result.accepted,
+            reason=result.reason,
         )
-    return MutationResult(
-        entity_type=mutation.entity_type, entity_id=mutation.entity_id, accepted=True
     )
+    return result
 
 
 @router.post("/push", response_model=SyncPushResponse)
