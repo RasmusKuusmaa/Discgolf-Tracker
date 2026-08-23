@@ -12,14 +12,15 @@ from app.api.deps import get_current_user, get_current_user_optional
 from app.core.errors import AppError
 from app.core.geo import to_point
 from app.core.hole_factory import build_hole
-from app.core.slugs import slugify
+from app.core.slugs import similar_course_names, slugify
 from app.db.session import get_session
-from app.models.course import Course
+from app.models.course import Course, CourseStatus
 from app.models.layout import Layout
 from app.models.user import User
 from app.schemas.course import (
     CourseBboxResponse,
     CourseCreate,
+    CourseCreateResult,
     CourseListResponse,
     CourseNearby,
     CourseNearbyResponse,
@@ -44,6 +45,23 @@ async def _unique_slug(session: AsyncSession, name: str, course_id: uuid.UUID) -
     return f"{base}-{str(course_id)[:8]}"
 
 
+_DUPLICATE_RADIUS_M = 300
+
+
+async def _find_possible_duplicates(
+    session: AsyncSession, name: str, location: Coordinates
+) -> list[Course]:
+    origin = to_point(location)
+    stmt = (
+        select(Course)
+        .where(Course.deleted_at.is_(None))
+        .where(Course.status == CourseStatus.PUBLISHED)
+        .where(Course.location.ST_DWithin(origin, _DUPLICATE_RADIUS_M))
+    )
+    result = await session.execute(stmt)
+    return [c for c in result.scalars() if similar_course_names(name, c.name)]
+
+
 def _encode_cursor(course_id: uuid.UUID) -> str:
     return base64.urlsafe_b64encode(str(course_id).encode()).decode()
 
@@ -57,12 +75,13 @@ def _decode_cursor(cursor: str) -> uuid.UUID:
         ) from exc
 
 
-@router.post("", response_model=CourseRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CourseCreateResult, status_code=status.HTTP_201_CREATED)
 async def create_course(
     payload: CourseCreate,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> Course:
+) -> CourseCreateResult:
+    duplicates = await _find_possible_duplicates(session, payload.name, payload.location)
     slug = await _unique_slug(session, payload.name, payload.id)
 
     course = Course(
@@ -93,7 +112,9 @@ async def create_course(
     session.add(course)
     await session.commit()
 
-    return course
+    result = CourseCreateResult.model_validate(course)
+    result.possible_duplicates = [CourseSummary.model_validate(c) for c in duplicates]
+    return result
 
 
 @router.get("", response_model=CourseListResponse)

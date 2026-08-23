@@ -89,3 +89,7 @@ class CourseNearbyResponse(BaseModel):
 
 class CourseBboxResponse(BaseModel):
     items: list[CourseSummary]
+
+
+class CourseCreateResult(CourseRead):
+    possible_duplicates: list[CourseSummary] = Field(default_factory=list)
