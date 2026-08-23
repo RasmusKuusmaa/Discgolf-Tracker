@@ -13,6 +13,7 @@ from app.models.hole import Hole
 from app.models.hole_score import HoleScore
 from app.models.layout import Layout
 from app.models.personal_best import PersonalBest
+from app.models.play_streak import PlayStreak
 from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user_achievement import UserAchievement
@@ -34,15 +35,29 @@ async def award_xp(
     session.add(XpEvent(user_id=user_id, source=source, amount=amount, ref_id=ref_id))
 
 
-def _compute_current_streak(play_days: list[date]) -> int:
-    if not play_days:
-        return 0
-    streak = 1
-    for i in range(len(play_days) - 1, 0, -1):
-        if (play_days[i] - play_days[i - 1]).days == 1:
-            streak += 1
-        else:
-            break
+async def update_play_streak(
+    session: AsyncSession, user_id: uuid.UUID, played_on: date
+) -> PlayStreak:
+    result = await session.execute(select(PlayStreak).where(PlayStreak.user_id == user_id))
+    streak = result.scalar_one_or_none()
+
+    if streak is None:
+        streak = PlayStreak(
+            user_id=user_id, current_streak=1, longest_streak=1, last_played_date=played_on
+        )
+        session.add(streak)
+        return streak
+
+    if streak.last_played_date == played_on:
+        return streak
+
+    if streak.last_played_date is not None and (played_on - streak.last_played_date).days == 1:
+        streak.current_streak += 1
+    else:
+        streak.current_streak = 1
+
+    streak.longest_streak = max(streak.longest_streak, streak.current_streak)
+    streak.last_played_date = played_on
     return streak
 
 
@@ -105,7 +120,10 @@ async def _gather_user_game_stats(
     ).scalars().all()
     play_days = sorted({d.date() for d in completed_dates if d is not None})
     distinct_months_played = len({(d.year, d.month) for d in play_days})
-    current_streak_days = _compute_current_streak(play_days)
+
+    streak_result = await session.execute(select(PlayStreak).where(PlayStreak.user_id == user_id))
+    streak = streak_result.scalar_one_or_none()
+    current_streak_days = streak.current_streak if streak is not None else 0
 
     this_round_rows = (
         await session.execute(
@@ -246,3 +264,19 @@ async def award_participation_xp_for_round(session: AsyncSession, round_: Round)
             await award_xp(
                 session, user_id, "first_course_play", XP_FIRST_COURSE_PLAY, layout.course_id
             )
+
+
+async def update_play_streaks_for_round(session: AsyncSession, round_: Round) -> None:
+    if round_.completed_at is None:
+        return
+    played_on = round_.completed_at.date()
+
+    players_result = await session.execute(
+        select(RoundPlayer).where(
+            RoundPlayer.round_id == round_.id, RoundPlayer.user_id.is_not(None)
+        )
+    )
+    for player in players_result.scalars():
+        user_id = player.user_id
+        assert user_id is not None
+        await update_play_streak(session, user_id, played_on)

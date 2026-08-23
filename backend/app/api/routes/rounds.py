@@ -14,6 +14,7 @@ from app.core.gamification import (
     award_participation_xp_for_round,
     award_xp,
     evaluate_achievements_for_round,
+    update_play_streaks_for_round,
 )
 from app.core.scoring import score_term
 from app.db.session import get_session
@@ -348,6 +349,7 @@ async def complete_round(
 
     if not round_.is_partial and not round_.is_practice:
         await _update_stats_after_completion(session, round_)
+        await update_play_streaks_for_round(session, round_)
         await award_participation_xp_for_round(session, round_)
         await evaluate_achievements_for_round(session, round_)
 
