@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.courses import router as courses_router
+from app.api.routes.layouts import router as layouts_router
 from app.api.routes.users import router as users_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(users_router)
     app.include_router(courses_router)
+    app.include_router(layouts_router)
 
     return app
 

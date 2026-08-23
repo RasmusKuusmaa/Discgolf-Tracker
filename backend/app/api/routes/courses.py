@@ -4,13 +4,13 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, status
 from geoalchemy2 import Geography
-from geoalchemy2.elements import WKTElement
 from sqlalchemy import Select, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_current_user_optional
 from app.core.errors import AppError
+from app.core.geo import to_point
 from app.core.slugs import slugify
 from app.db.session import get_session
 from app.models.course import Course
@@ -34,10 +34,6 @@ router = APIRouter(prefix="/courses", tags=["courses"])
 
 def _course_with_layouts_stmt() -> Select[tuple[Course]]:
     return select(Course).options(selectinload(Course.layouts).selectinload(Layout.holes))
-
-
-def _point(coordinates: Coordinates) -> WKTElement:
-    return WKTElement(f"POINT({coordinates.lng} {coordinates.lat})", srid=4326)
 
 
 async def _unique_slug(session: AsyncSession, name: str, course_id: uuid.UUID) -> str:
@@ -77,7 +73,7 @@ async def create_course(
         city=payload.city,
         region=payload.region,
         country=payload.country,
-        location=_point(payload.location),
+        location=to_point(payload.location),
         created_by_id=user.id,
         visibility=payload.visibility,
     )
@@ -96,9 +92,9 @@ async def create_course(
                     number=hole_in.number,
                     par=hole_in.par,
                     distance_m=hole_in.distance_m,
-                    tee_location=_point(hole_in.tee_location) if hole_in.tee_location else None,
+                    tee_location=to_point(hole_in.tee_location) if hole_in.tee_location else None,
                     basket_location=(
-                        _point(hole_in.basket_location) if hole_in.basket_location else None
+                        to_point(hole_in.basket_location) if hole_in.basket_location else None
                     ),
                     elevation_delta_m=hole_in.elevation_delta_m,
                     notes=hole_in.notes,
@@ -139,7 +135,11 @@ async def list_courses(
         stmt = stmt.where(Course.created_by_id == viewer.id)
     if min_holes is not None:
         stmt = stmt.where(
-            Course.id.in_(select(Layout.course_id).where(Layout.hole_count >= min_holes))
+            Course.id.in_(
+                select(Layout.course_id).where(
+                    Layout.hole_count >= min_holes, Layout.deleted_at.is_(None)
+                )
+            )
         )
     if cursor:
         stmt = stmt.where(Course.id < _decode_cursor(cursor))
@@ -164,7 +164,7 @@ async def list_nearby_courses(
     limit: int = Query(default=20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ) -> CourseNearbyResponse:
-    origin = WKTElement(f"POINT({lng} {lat})", srid=4326)
+    origin = to_point(Coordinates(lat=lat, lng=lng))
     distance = Course.location.ST_Distance(origin).label("distance_m")
 
     stmt = (

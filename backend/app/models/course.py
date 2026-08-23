@@ -47,5 +47,8 @@ class Course(TimestampedUUIDMixin, Base):
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     layouts: Mapped[list["Layout"]] = relationship(
-        back_populates="course", cascade="all, delete-orphan", order_by="Layout.name"
+        back_populates="course",
+        cascade="all, delete-orphan",
+        order_by="Layout.name",
+        primaryjoin="(Course.id == Layout.course_id) & (Layout.deleted_at.is_(None))",
     )
