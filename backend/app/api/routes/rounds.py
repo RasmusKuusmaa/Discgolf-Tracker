@@ -53,10 +53,10 @@ async def _get_owned_round(session: AsyncSession, round_id: uuid.UUID, user: Use
     round_ = result.scalar_one_or_none()
     if round_ is None:
         raise AppError("round_not_found", "Round not found", status.HTTP_404_NOT_FOUND)
-    if round_.created_by_id != user.id:
+    if round_.created_by_id != user.id and not user.is_admin:
         raise AppError(
             "not_round_owner",
-            "Only the round creator can do this",
+            "Only the round creator or an admin can do this",
             status.HTTP_403_FORBIDDEN,
         )
     return round_
@@ -268,6 +268,12 @@ async def upsert_round_scores(
     session: AsyncSession = Depends(get_session),
 ) -> RoundScoresResponse:
     round_ = await _get_owned_round(session, round_id, user)
+    if round_.status != RoundStatus.IN_PROGRESS and not user.is_admin:
+        raise AppError(
+            "round_not_in_progress",
+            "Cannot write scores to a round that is not in progress",
+            status.HTTP_409_CONFLICT,
+        )
     await _validate_scorecard_refs(session, round_, payload.scores)
 
     for score_in in payload.scores:
