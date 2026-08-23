@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_current_user_optional
 from app.core.errors import AppError
+from app.core.gamification import XP_COURSE_CREATED, award_xp
 from app.core.geo import to_point
 from app.core.hole_factory import build_hole
 from app.core.slugs import similar_course_names, slugify
@@ -113,6 +114,7 @@ async def create_course(
         course.layouts.append(layout)
 
     session.add(course)
+    await award_xp(session, user.id, "course_created", XP_COURSE_CREATED, course.id)
     await session.commit()
 
     result = CourseCreateResult.model_validate(course)

@@ -16,6 +16,22 @@ from app.models.personal_best import PersonalBest
 from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user_achievement import UserAchievement
+from app.models.xp_event import XpEvent
+
+XP_ROUND_COMPLETED = 25
+XP_PERSONAL_BEST = 50
+XP_COURSE_CREATED = 20
+XP_FIRST_COURSE_PLAY = 30
+
+
+async def award_xp(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    source: str,
+    amount: int,
+    ref_id: uuid.UUID | None = None,
+) -> None:
+    session.add(XpEvent(user_id=user_id, source=source, amount=amount, ref_id=ref_id))
 
 
 def _compute_current_streak(play_days: list[date]) -> int:
@@ -157,6 +173,13 @@ async def _apply_achievement_progress(
             record.unlocked_at = datetime.now(UTC)
             record.progress = 1.0
             newly_unlocked.append(item.achievement)
+            await award_xp(
+                session,
+                user_id,
+                "achievement_unlocked",
+                item.achievement.xp_reward,
+                item.achievement.id,
+            )
 
     return newly_unlocked
 
@@ -185,3 +208,41 @@ async def evaluate_achievements_for_round(
             newly_unlocked_by_user[user_id] = newly_unlocked
 
     return newly_unlocked_by_user
+
+
+async def award_participation_xp_for_round(session: AsyncSession, round_: Round) -> None:
+    layout = await session.get(Layout, round_.layout_id)
+    if layout is None:
+        return
+
+    players_result = await session.execute(
+        select(RoundPlayer).where(
+            RoundPlayer.round_id == round_.id, RoundPlayer.user_id.is_not(None)
+        )
+    )
+
+    for player in players_result.scalars():
+        user_id = player.user_id
+        assert user_id is not None
+
+        await award_xp(session, user_id, "round_completed", XP_ROUND_COMPLETED, round_.id)
+
+        prior_play = await session.execute(
+            select(Round.id)
+            .select_from(Round)
+            .join(RoundPlayer, RoundPlayer.round_id == Round.id)
+            .join(Layout, Layout.id == Round.layout_id)
+            .where(
+                RoundPlayer.user_id == user_id,
+                Layout.course_id == layout.course_id,
+                Round.status == RoundStatus.COMPLETED,
+                Round.is_partial.is_(False),
+                Round.is_practice.is_(False),
+                Round.id != round_.id,
+            )
+            .limit(1)
+        )
+        if prior_play.scalar_one_or_none() is None:
+            await award_xp(
+                session, user_id, "first_course_play", XP_FIRST_COURSE_PLAY, layout.course_id
+            )

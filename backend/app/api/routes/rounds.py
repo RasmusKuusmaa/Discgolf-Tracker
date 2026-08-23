@@ -9,7 +9,12 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.core.errors import AppError
-from app.core.gamification import evaluate_achievements_for_round
+from app.core.gamification import (
+    XP_PERSONAL_BEST,
+    award_participation_xp_for_round,
+    award_xp,
+    evaluate_achievements_for_round,
+)
 from app.core.scoring import score_term
 from app.db.session import get_session
 from app.models.hole import Hole
@@ -343,6 +348,7 @@ async def complete_round(
 
     if not round_.is_partial and not round_.is_practice:
         await _update_stats_after_completion(session, round_)
+        await award_participation_xp_for_round(session, round_)
         await evaluate_achievements_for_round(session, round_)
 
     await session.commit()
@@ -362,20 +368,25 @@ async def _update_personal_best(
     )
     personal_best = existing_result.scalar_one_or_none()
 
+    user_id = player.user_id
+    assert user_id is not None
+
     if personal_best is None:
         session.add(
             PersonalBest(
-                user_id=player.user_id,
+                user_id=user_id,
                 layout_id=round_.layout_id,
                 best_score_to_par=score_to_par,
                 round_id=round_.id,
                 achieved_at=datetime.now(UTC),
             )
         )
+        await award_xp(session, user_id, "personal_best", XP_PERSONAL_BEST, round_.layout_id)
     elif score_to_par < personal_best.best_score_to_par:
         personal_best.best_score_to_par = score_to_par
         personal_best.round_id = round_.id
         personal_best.achieved_at = datetime.now(UTC)
+        await award_xp(session, user_id, "personal_best", XP_PERSONAL_BEST, round_.layout_id)
 
 
 async def _update_layout_stats(
