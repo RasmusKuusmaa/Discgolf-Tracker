@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_current_user_optional
 from app.core.errors import AppError
 from app.core.friendships import is_blocked_pair
 from app.db.session import get_session
+from app.models.friendship import Friendship, FriendshipStatus
 from app.models.user import User, Visibility
-from app.schemas.user import UserPublicRead, UserRead, UserUpdate
+from app.schemas.user import UserPublicRead, UserRead, UserSearchResponse, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -30,6 +31,38 @@ async def update_me(
     await session.commit()
     await session.refresh(user)
     return user
+
+
+@router.get("/search", response_model=UserSearchResponse)
+async def search_users(
+    q: str = Query(min_length=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    viewer: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> UserSearchResponse:
+    pattern = f"%{q}%"
+    blocked_subquery = select(Friendship.id).where(
+        Friendship.deleted_at.is_(None),
+        Friendship.status == FriendshipStatus.BLOCKED,
+        or_(
+            and_(Friendship.requester_id == viewer.id, Friendship.addressee_id == User.id),
+            and_(Friendship.requester_id == User.id, Friendship.addressee_id == viewer.id),
+        ),
+    )
+
+    stmt = (
+        select(User)
+        .where(
+            User.id != viewer.id,
+            User.allow_friend_requests.is_(True),
+            or_(User.username.ilike(pattern), User.display_name.ilike(pattern)),
+            ~blocked_subquery.exists(),
+        )
+        .order_by(User.username)
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    return UserSearchResponse(items=list(result.scalars()))
 
 
 @router.get("/{username}", response_model=UserPublicRead)

@@ -41,3 +41,7 @@ class UserUpdate(BaseModel):
     profile_visibility: Visibility | None = None
     stats_visibility: Visibility | None = None
     allow_friend_requests: bool | None = None
+
+
+class UserSearchResponse(BaseModel):
+    items: list[UserPublicRead]
