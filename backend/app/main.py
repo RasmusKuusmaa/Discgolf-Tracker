@@ -4,6 +4,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.api.routes.admin import router as admin_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.courses import router as courses_router
 from app.api.routes.layouts import router as layouts_router
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(courses_router)
     app.include_router(layouts_router)
+    app.include_router(admin_router)
 
     return app
 

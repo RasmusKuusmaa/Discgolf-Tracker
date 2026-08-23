@@ -15,6 +15,7 @@ from app.core.hole_factory import build_hole
 from app.core.slugs import similar_course_names, slugify
 from app.db.session import get_session
 from app.models.course import Course, CourseStatus
+from app.models.course_flag import CourseFlag
 from app.models.layout import Layout
 from app.models.user import User
 from app.schemas.course import (
@@ -28,6 +29,7 @@ from app.schemas.course import (
     CourseSummary,
     CourseUpdate,
 )
+from app.schemas.course_flag import CourseFlagCreate, CourseFlagRead
 from app.schemas.geo import Coordinates
 
 router = APIRouter(prefix="/courses", tags=["courses"])
@@ -287,3 +289,26 @@ async def delete_course(
 
     course.deleted_at = datetime.now(UTC)
     await session.commit()
+
+
+@router.post(
+    "/{course_id}/flag", response_model=CourseFlagRead, status_code=status.HTTP_201_CREATED
+)
+async def flag_course(
+    course_id: uuid.UUID,
+    payload: CourseFlagCreate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CourseFlag:
+    result = await session.execute(
+        select(Course).where(Course.id == course_id, Course.deleted_at.is_(None))
+    )
+    course = result.scalar_one_or_none()
+    if course is None:
+        raise AppError("course_not_found", "Course not found", status.HTTP_404_NOT_FOUND)
+
+    flag = CourseFlag(course_id=course_id, reported_by_id=user.id, reason=payload.reason)
+    course.status = CourseStatus.FLAGGED
+    session.add(flag)
+    await session.commit()
+    return flag
