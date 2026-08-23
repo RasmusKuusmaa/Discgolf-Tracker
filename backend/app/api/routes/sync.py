@@ -34,6 +34,7 @@ from app.schemas.sync import (
     MutationOp,
     MutationResult,
     RoundMutationData,
+    RoundPlayerMutationData,
     SyncCourse,
     SyncFriendship,
     SyncHole,
@@ -599,6 +600,87 @@ async def _handle_round_mutation(
     await session.flush()
 
 
+async def _handle_round_player_mutation(
+    session: AsyncSession, user: User, mutation: ClientMutation
+) -> None:
+    player = await session.get(RoundPlayer, mutation.entity_id)
+
+    if mutation.op == MutationOp.DELETE:
+        if player is None:
+            raise AppError("not_found", "Round player not found", status.HTTP_404_NOT_FOUND)
+        round_ = await session.get(Round, player.round_id)
+        if round_ is not None:
+            _check_owner(round_.created_by_id, user)
+            if round_.status == RoundStatus.COMPLETED:
+                raise AppError(
+                    "round_completed_immutable",
+                    "Cannot modify a completed round",
+                    status.HTTP_409_CONFLICT,
+                )
+        _check_stale(mutation.updated_at, player.updated_at)
+        player.deleted_at = mutation.updated_at
+        player.updated_at = mutation.updated_at
+        return
+
+    data = RoundPlayerMutationData.model_validate(mutation.data)
+
+    if player is None:
+        if mutation.op == MutationOp.UPDATE:
+            raise AppError("not_found", "Round player not found", status.HTTP_404_NOT_FOUND)
+        if data.round_id is None or data.position is None:
+            raise AppError(
+                "invalid_data",
+                "round_id and position are required to create a round player",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        if (data.user_id is None) == (data.guest_name is None):
+            raise AppError(
+                "invalid_data",
+                "Exactly one of user_id or guest_name must be set",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        round_ = await session.get(Round, data.round_id)
+        if round_ is None:
+            raise AppError("round_not_found", "Round not found", status.HTTP_404_NOT_FOUND)
+        _check_owner(round_.created_by_id, user)
+        if round_.status == RoundStatus.COMPLETED:
+            raise AppError(
+                "round_completed_immutable",
+                "Cannot modify a completed round",
+                status.HTTP_409_CONFLICT,
+            )
+        player = RoundPlayer(
+            id=mutation.entity_id,
+            round_id=data.round_id,
+            user_id=data.user_id,
+            guest_name=data.guest_name,
+            position=data.position,
+            is_scorekeeper=data.is_scorekeeper or False,
+            updated_at=mutation.updated_at,
+        )
+        session.add(player)
+        await session.flush()
+        return
+
+    round_ = await session.get(Round, player.round_id)
+    if round_ is not None:
+        _check_owner(round_.created_by_id, user)
+        if round_.status == RoundStatus.COMPLETED:
+            raise AppError(
+                "round_completed_immutable",
+                "Cannot modify a completed round",
+                status.HTTP_409_CONFLICT,
+            )
+    _check_stale(mutation.updated_at, player.updated_at)
+
+    if data.position is not None:
+        player.position = data.position
+    if data.is_scorekeeper is not None:
+        player.is_scorekeeper = data.is_scorekeeper
+    player.updated_at = mutation.updated_at
+    await session.flush()
+
+
 _MUTATION_HANDLERS: dict[
     MutationEntityType, Callable[[AsyncSession, User, ClientMutation], Awaitable[None]]
 ] = {
@@ -606,6 +688,7 @@ _MUTATION_HANDLERS: dict[
     MutationEntityType.LAYOUT: _handle_layout_mutation,
     MutationEntityType.HOLE: _handle_hole_mutation,
     MutationEntityType.ROUND: _handle_round_mutation,
+    MutationEntityType.ROUND_PLAYER: _handle_round_player_mutation,
 }
 
 
