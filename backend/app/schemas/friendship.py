@@ -27,3 +27,32 @@ class FriendshipRead(BaseModel):
     status: FriendshipStatus
     created_at: datetime
     responded_at: datetime | None
+
+
+class FriendSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    username: str
+    display_name: str
+    avatar_url: str | None
+
+
+class FriendListItem(BaseModel):
+    user: FriendSummary
+    friends_since: datetime
+
+
+class FriendListResponse(BaseModel):
+    items: list[FriendListItem]
+
+
+class FriendRequestItem(BaseModel):
+    id: uuid.UUID
+    user: FriendSummary
+    created_at: datetime
+
+
+class FriendRequestsResponse(BaseModel):
+    incoming: list[FriendRequestItem]
+    outgoing: list[FriendRequestItem]

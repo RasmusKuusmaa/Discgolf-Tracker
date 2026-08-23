@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -11,9 +11,104 @@ from app.core.friendships import find_pair_friendship
 from app.db.session import get_session
 from app.models.friendship import Friendship, FriendshipStatus
 from app.models.user import User
-from app.schemas.friendship import FriendRequestCreate, FriendshipRead
+from app.schemas.friendship import (
+    FriendListItem,
+    FriendListResponse,
+    FriendRequestCreate,
+    FriendRequestItem,
+    FriendRequestsResponse,
+    FriendshipRead,
+    FriendSummary,
+)
 
 router = APIRouter(prefix="/friends", tags=["friends"])
+
+
+@router.get("", response_model=FriendListResponse)
+async def list_friends(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> FriendListResponse:
+    stmt = select(Friendship).where(
+        Friendship.deleted_at.is_(None),
+        Friendship.status == FriendshipStatus.ACCEPTED,
+        or_(Friendship.requester_id == user.id, Friendship.addressee_id == user.id),
+    )
+    friendships = list((await session.execute(stmt)).scalars())
+
+    other_ids = [
+        f.addressee_id if f.requester_id == user.id else f.requester_id for f in friendships
+    ]
+    users_by_id = {
+        u.id: u
+        for u in (await session.execute(select(User).where(User.id.in_(other_ids)))).scalars()
+    }
+
+    items = [
+        FriendListItem(
+            user=FriendSummary.model_validate(users_by_id[other_id]),
+            friends_since=friendship.responded_at or friendship.created_at,
+        )
+        for friendship, other_id in zip(friendships, other_ids, strict=True)
+        if other_id in users_by_id
+    ]
+    return FriendListResponse(items=items)
+
+
+@router.get("/requests", response_model=FriendRequestsResponse)
+async def list_friend_requests(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> FriendRequestsResponse:
+    incoming = list(
+        (
+            await session.execute(
+                select(Friendship).where(
+                    Friendship.deleted_at.is_(None),
+                    Friendship.status == FriendshipStatus.PENDING,
+                    Friendship.addressee_id == user.id,
+                )
+            )
+        ).scalars()
+    )
+    outgoing = list(
+        (
+            await session.execute(
+                select(Friendship).where(
+                    Friendship.deleted_at.is_(None),
+                    Friendship.status == FriendshipStatus.PENDING,
+                    Friendship.requester_id == user.id,
+                )
+            )
+        ).scalars()
+    )
+
+    other_ids = {f.requester_id for f in incoming} | {f.addressee_id for f in outgoing}
+    users_by_id = {
+        u.id: u
+        for u in (await session.execute(select(User).where(User.id.in_(other_ids)))).scalars()
+    }
+
+    return FriendRequestsResponse(
+        incoming=[
+            FriendRequestItem(
+                id=f.id,
+                user=FriendSummary.model_validate(users_by_id[f.requester_id]),
+                created_at=f.created_at,
+            )
+            for f in incoming
+            if f.requester_id in users_by_id
+        ],
+        outgoing=[
+            FriendRequestItem(
+                id=f.id,
+                user=FriendSummary.model_validate(users_by_id[f.addressee_id]),
+                created_at=f.created_at,
+            )
+            for f in outgoing
+            if f.addressee_id in users_by_id
+        ],
+    )
 
 
 async def _resolve_target_user(session: AsyncSession, payload: FriendRequestCreate) -> User:
