@@ -3,6 +3,7 @@ from app.models.course_flag import CourseFlag
 from app.models.hole import Hole
 from app.models.layout import Layout
 from app.models.refresh_token import RefreshToken
+from app.models.round import Round
 from app.models.user import User
 
-__all__ = ["Course", "CourseFlag", "Hole", "Layout", "RefreshToken", "User"]
+__all__ = ["Course", "CourseFlag", "Hole", "Layout", "RefreshToken", "Round", "User"]
