@@ -15,7 +15,14 @@ from app.models.course import Course
 from app.models.hole import Hole
 from app.models.layout import Layout
 from app.models.user import User
-from app.schemas.course import CourseCreate, CourseListResponse, CourseRead
+from app.schemas.course import (
+    CourseCreate,
+    CourseListResponse,
+    CourseNearby,
+    CourseNearbyResponse,
+    CourseRead,
+    CourseSummary,
+)
 from app.schemas.geo import Coordinates
 
 router = APIRouter(prefix="/courses", tags=["courses"])
@@ -143,6 +150,34 @@ async def list_courses(
     next_cursor = _encode_cursor(courses[-1].id) if has_more and courses else None
 
     return CourseListResponse(items=courses, next_cursor=next_cursor)
+
+
+@router.get("/nearby", response_model=CourseNearbyResponse)
+async def list_nearby_courses(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    radius_km: float = Query(..., gt=0, le=500),
+    limit: int = Query(default=20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+) -> CourseNearbyResponse:
+    origin = WKTElement(f"POINT({lng} {lat})", srid=4326)
+    distance = Course.location.ST_Distance(origin).label("distance_m")
+
+    stmt = (
+        select(Course, distance)
+        .where(Course.deleted_at.is_(None))
+        .where(Course.location.ST_DWithin(origin, radius_km * 1000))
+        .order_by(distance)
+        .limit(limit)
+    )
+
+    result = await session.execute(stmt)
+    items = [
+        CourseNearby(**CourseSummary.model_validate(course).model_dump(), distance_m=distance_m)
+        for course, distance_m in result.all()
+    ]
+
+    return CourseNearbyResponse(items=items)
 
 
 @router.get("/{course_id}", response_model=CourseRead)

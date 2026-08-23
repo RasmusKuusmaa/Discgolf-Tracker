@@ -77,3 +77,11 @@ class CourseSummary(BaseModel):
 class CourseListResponse(BaseModel):
     items: list[CourseSummary]
     next_cursor: str | None = None
+
+
+class CourseNearby(CourseSummary):
+    distance_m: float
+
+
+class CourseNearbyResponse(BaseModel):
+    items: list[CourseNearby]
