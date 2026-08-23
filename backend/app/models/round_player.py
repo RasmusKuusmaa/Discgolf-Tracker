@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampedUUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.hole_score import HoleScore
     from app.models.round import Round
     from app.models.user import User
 
@@ -33,3 +34,6 @@ class RoundPlayer(TimestampedUUIDMixin, Base):
 
     round: Mapped["Round"] = relationship(back_populates="players")
     user: Mapped[Optional["User"]] = relationship()
+    hole_scores: Mapped[list["HoleScore"]] = relationship(
+        back_populates="round_player", cascade="all, delete-orphan"
+    )
