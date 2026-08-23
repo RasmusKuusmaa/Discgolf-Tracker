@@ -56,3 +56,20 @@ class RoundRead(BaseModel):
     is_partial: bool
     created_at: datetime
     players: list[RoundPlayerRead] = []
+
+
+class RoundSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    layout_id: uuid.UUID
+    started_at: datetime
+    completed_at: datetime | None
+    status: RoundStatus
+    is_practice: bool
+    is_partial: bool
+
+
+class RoundListResponse(BaseModel):
+    items: list[RoundSummary]
+    next_cursor: str | None = None

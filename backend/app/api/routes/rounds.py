@@ -1,7 +1,8 @@
+import base64
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,13 +17,26 @@ from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user import User
 from app.schemas.hole_score import HoleScoreUpsert, RoundScoresResponse, RoundScoresUpsert
-from app.schemas.round import RoundCreate, RoundRead
+from app.schemas.round import RoundCreate, RoundListResponse, RoundRead
 
 router = APIRouter(prefix="/rounds", tags=["rounds"])
 
 
 def _round_with_players_stmt() -> Select[tuple[Round]]:
     return select(Round).options(selectinload(Round.players))
+
+
+def _encode_cursor(round_id: uuid.UUID) -> str:
+    return base64.urlsafe_b64encode(str(round_id).encode()).decode()
+
+
+def _decode_cursor(cursor: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(base64.urlsafe_b64decode(cursor.encode()).decode())
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise AppError(
+            "invalid_cursor", "Invalid pagination cursor", status.HTTP_400_BAD_REQUEST
+        ) from exc
 
 
 async def _get_owned_round(session: AsyncSession, round_id: uuid.UUID, user: User) -> Round:
@@ -90,6 +104,44 @@ async def create_round(
 
     result = await session.execute(_round_with_players_stmt().where(Round.id == round_.id))
     return result.scalar_one()
+
+
+@router.get("", response_model=RoundListResponse)
+async def list_rounds(
+    layout_id: uuid.UUID | None = None,
+    course_id: uuid.UUID | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    cursor: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> RoundListResponse:
+    stmt = select(Round).where(Round.created_by_id == user.id, Round.deleted_at.is_(None))
+
+    if layout_id is not None:
+        stmt = stmt.where(Round.layout_id == layout_id)
+    if course_id is not None:
+        stmt = stmt.where(
+            Round.layout_id.in_(select(Layout.id).where(Layout.course_id == course_id))
+        )
+    if date_from is not None:
+        stmt = stmt.where(Round.started_at >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(Round.started_at <= date_to)
+    if cursor:
+        stmt = stmt.where(Round.id < _decode_cursor(cursor))
+
+    stmt = stmt.order_by(Round.id.desc()).limit(limit + 1)
+
+    result = await session.execute(stmt)
+    rounds = list(result.scalars())
+
+    has_more = len(rounds) > limit
+    rounds = rounds[:limit]
+    next_cursor = _encode_cursor(rounds[-1].id) if has_more and rounds else None
+
+    return RoundListResponse(items=rounds, next_cursor=next_cursor)
 
 
 async def _validate_scorecard_refs(
