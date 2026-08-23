@@ -198,3 +198,22 @@ async def complete_round(
 
     result = await session.execute(_round_with_players_stmt().where(Round.id == round_.id))
     return result.scalar_one()
+
+
+@router.post("/{round_id}/abandon", response_model=RoundRead)
+async def abandon_round(
+    round_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Round:
+    round_ = await _get_owned_round(session, round_id, user)
+    if round_.status != RoundStatus.IN_PROGRESS:
+        raise AppError(
+            "round_not_in_progress", "Round is not in progress", status.HTTP_409_CONFLICT
+        )
+
+    round_.status = RoundStatus.ABANDONED
+    await session.commit()
+
+    result = await session.execute(_round_with_players_stmt().where(Round.id == round_.id))
+    return result.scalar_one()
