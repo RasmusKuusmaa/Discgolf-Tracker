@@ -17,6 +17,7 @@ from app.db.session import get_session
 from app.models.course import Course, CourseStatus
 from app.models.course_flag import CourseFlag
 from app.models.layout import Layout
+from app.models.round import Round
 from app.models.user import User
 from app.schemas.course import (
     CourseBboxResponse,
@@ -249,6 +250,16 @@ def _require_owner_or_admin(course: Course, user: User) -> None:
         )
 
 
+async def _course_has_rounds(session: AsyncSession, course_id: uuid.UUID) -> bool:
+    result = await session.execute(
+        select(Round.id)
+        .join(Layout, Round.layout_id == Layout.id)
+        .where(Layout.course_id == course_id)
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
 @router.patch("/{course_id}", response_model=CourseRead)
 async def update_course(
     course_id: uuid.UUID,
@@ -286,6 +297,13 @@ async def delete_course(
         raise AppError("course_not_found", "Course not found", status.HTTP_404_NOT_FOUND)
 
     _require_owner_or_admin(course, user)
+
+    if await _course_has_rounds(session, course_id):
+        raise AppError(
+            "course_has_rounds",
+            "Cannot delete a course with recorded rounds",
+            status.HTTP_409_CONFLICT,
+        )
 
     course.deleted_at = datetime.now(UTC)
     await session.commit()

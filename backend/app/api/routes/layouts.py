@@ -12,6 +12,7 @@ from app.core.hole_factory import build_hole
 from app.db.session import get_session
 from app.models.course import Course
 from app.models.layout import Layout
+from app.models.round import Round
 from app.models.user import User
 from app.schemas.layout import LayoutCreate, LayoutRead, LayoutUpdate
 
@@ -50,6 +51,11 @@ async def _get_layout(
     if layout is None:
         raise AppError("layout_not_found", "Layout not found", status.HTTP_404_NOT_FOUND)
     return layout
+
+
+async def _layout_has_rounds(session: AsyncSession, layout_id: uuid.UUID) -> bool:
+    result = await session.execute(select(Round.id).where(Round.layout_id == layout_id).limit(1))
+    return result.scalar_one_or_none() is not None
 
 
 @router.post("", response_model=LayoutRead, status_code=status.HTTP_201_CREATED)
@@ -104,6 +110,13 @@ async def delete_layout(
 ) -> None:
     await _get_owned_course(session, course_id, user)
     layout = await _get_layout(session, course_id, layout_id)
+
+    if await _layout_has_rounds(session, layout_id):
+        raise AppError(
+            "layout_has_rounds",
+            "Cannot delete a layout with recorded rounds; deactivate it instead",
+            status.HTTP_409_CONFLICT,
+        )
 
     layout.deleted_at = datetime.now(UTC)
     await session.commit()
