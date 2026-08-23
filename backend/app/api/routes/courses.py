@@ -100,6 +100,7 @@ async def create_course(
                     notes=hole_in.notes,
                 )
             )
+        layout.recompute_totals()
         course.layouts.append(layout)
 
     session.add(course)

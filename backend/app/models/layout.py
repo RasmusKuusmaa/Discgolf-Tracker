@@ -30,3 +30,9 @@ class Layout(TimestampedUUIDMixin, Base):
     holes: Mapped[list["Hole"]] = relationship(
         back_populates="layout", cascade="all, delete-orphan", order_by="Hole.number"
     )
+
+    def recompute_totals(self) -> None:
+        self.hole_count = len(self.holes)
+        self.par_total = sum(hole.par for hole in self.holes)
+        distances = [hole.distance_m for hole in self.holes if hole.distance_m is not None]
+        self.total_distance_m = sum(distances) if distances else None

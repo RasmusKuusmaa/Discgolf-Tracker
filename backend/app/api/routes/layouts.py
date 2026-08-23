@@ -84,6 +84,7 @@ async def create_layout(
                 notes=hole_in.notes,
             )
         )
+    layout.recompute_totals()
 
     session.add(layout)
     await session.commit()
