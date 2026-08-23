@@ -1,16 +1,21 @@
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import ColumnElement, Select, or_, select
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import ColumnElement, Select, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
+from app.core.errors import AppError
+from app.core.geo import to_point
+from app.core.slugs import slugify
 from app.db.session import get_session
 from app.models.achievement import Achievement
-from app.models.course import Course
+from app.models.course import Course, CourseVisibility
 from app.models.friendship import Friendship
 from app.models.hole import Hole
 from app.models.hole_score import HoleScore
@@ -21,12 +26,19 @@ from app.models.user import User
 from app.models.user_achievement import UserAchievement
 from app.schemas.geo import coordinates_from_geography
 from app.schemas.sync import (
+    ClientMutation,
+    CourseMutationData,
+    MutationEntityType,
+    MutationOp,
+    MutationResult,
     SyncCourse,
     SyncFriendship,
     SyncHole,
     SyncHoleScore,
     SyncLayout,
     SyncPullResponse,
+    SyncPushRequest,
+    SyncPushResponse,
     SyncRound,
     SyncRoundPlayer,
     SyncUserAchievement,
@@ -251,3 +263,145 @@ async def pull_sync(
         friends=await _pull_friendships(session, user.id, since),
         achievements=await _pull_user_achievements(session, user.id, since),
     )
+
+
+def _check_owner(owner_id: uuid.UUID, user: User) -> None:
+    if owner_id != user.id and not user.is_admin:
+        raise AppError(
+            "not_owner", "Not authorized to modify this resource", status.HTTP_403_FORBIDDEN
+        )
+
+
+def _check_stale(mutation_updated_at: datetime, entity_updated_at: datetime) -> None:
+    if mutation_updated_at < entity_updated_at:
+        raise AppError(
+            "conflict_stale_write", "Server has a newer version", status.HTTP_409_CONFLICT
+        )
+
+
+async def _unique_course_slug(session: AsyncSession, name: str, entity_id: uuid.UUID) -> str:
+    base = slugify(name)
+    existing = await session.execute(select(Course.id).where(Course.slug == base))
+    if existing.scalar_one_or_none() is None:
+        return base
+    return f"{base}-{str(entity_id)[:8]}"
+
+
+async def _handle_course_mutation(
+    session: AsyncSession, user: User, mutation: ClientMutation
+) -> None:
+    course = await session.get(Course, mutation.entity_id)
+
+    if mutation.op == MutationOp.DELETE:
+        if course is None:
+            raise AppError("not_found", "Course not found", status.HTTP_404_NOT_FOUND)
+        _check_owner(course.created_by_id, user)
+        _check_stale(mutation.updated_at, course.updated_at)
+        has_rounds = await session.execute(
+            select(func.count(Round.id))
+            .select_from(Round)
+            .join(Layout, Layout.id == Round.layout_id)
+            .where(Layout.course_id == course.id)
+        )
+        if has_rounds.scalar_one() > 0:
+            raise AppError(
+                "course_has_rounds",
+                "Cannot delete a course with recorded rounds",
+                status.HTTP_409_CONFLICT,
+            )
+        course.deleted_at = mutation.updated_at
+        course.updated_at = mutation.updated_at
+        return
+
+    data = CourseMutationData.model_validate(mutation.data)
+
+    if course is None:
+        if mutation.op == MutationOp.UPDATE:
+            raise AppError("not_found", "Course not found", status.HTTP_404_NOT_FOUND)
+        if data.name is None or data.location is None:
+            raise AppError(
+                "invalid_data",
+                "name and location are required to create a course",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        course = Course(
+            id=mutation.entity_id,
+            name=data.name,
+            slug=await _unique_course_slug(session, data.name, mutation.entity_id),
+            description=data.description,
+            city=data.city,
+            region=data.region,
+            country=data.country,
+            location=to_point(data.location),
+            created_by_id=user.id,
+            visibility=data.visibility or CourseVisibility.PUBLIC,
+            updated_at=mutation.updated_at,
+        )
+        session.add(course)
+        await session.flush()
+        return
+
+    _check_owner(course.created_by_id, user)
+    _check_stale(mutation.updated_at, course.updated_at)
+
+    if data.name is not None:
+        course.name = data.name
+    if data.description is not None:
+        course.description = data.description
+    if data.city is not None:
+        course.city = data.city
+    if data.region is not None:
+        course.region = data.region
+    if data.country is not None:
+        course.country = data.country
+    if data.location is not None:
+        course.location = cast(str, to_point(data.location))
+    if data.visibility is not None:
+        course.visibility = data.visibility
+    course.updated_at = mutation.updated_at
+    await session.flush()
+
+
+_MUTATION_HANDLERS: dict[
+    MutationEntityType, Callable[[AsyncSession, User, ClientMutation], Awaitable[None]]
+] = {
+    MutationEntityType.COURSE: _handle_course_mutation,
+}
+
+
+async def _apply_mutation(
+    session: AsyncSession, user: User, mutation: ClientMutation
+) -> MutationResult:
+    handler = _MUTATION_HANDLERS.get(mutation.entity_type)
+    if handler is None:
+        return MutationResult(
+            entity_type=mutation.entity_type,
+            entity_id=mutation.entity_id,
+            accepted=False,
+            reason="unsupported_entity_type",
+        )
+    try:
+        async with session.begin_nested():
+            await handler(session, user, mutation)
+    except (AppError, IntegrityError) as exc:
+        reason = exc.code if isinstance(exc, AppError) else "integrity_conflict"
+        return MutationResult(
+            entity_type=mutation.entity_type,
+            entity_id=mutation.entity_id,
+            accepted=False,
+            reason=reason,
+        )
+    return MutationResult(
+        entity_type=mutation.entity_type, entity_id=mutation.entity_id, accepted=True
+    )
+
+
+@router.post("/push", response_model=SyncPushResponse)
+async def push_sync(
+    payload: SyncPushRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> SyncPushResponse:
+    results = [await _apply_mutation(session, user, mutation) for mutation in payload.mutations]
+    await session.commit()
+    return SyncPushResponse(results=results)
