@@ -2,8 +2,9 @@ import base64
 import uuid
 
 from fastapi import APIRouter, Depends, Query, status
+from geoalchemy2 import Geography
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,6 +17,7 @@ from app.models.hole import Hole
 from app.models.layout import Layout
 from app.models.user import User
 from app.schemas.course import (
+    CourseBboxResponse,
     CourseCreate,
     CourseListResponse,
     CourseNearby,
@@ -178,6 +180,35 @@ async def list_nearby_courses(
     ]
 
     return CourseNearbyResponse(items=items)
+
+
+@router.get("/bbox", response_model=CourseBboxResponse)
+async def list_courses_in_bbox(
+    min_lat: float = Query(..., ge=-90, le=90),
+    min_lng: float = Query(..., ge=-180, le=180),
+    max_lat: float = Query(..., ge=-90, le=90),
+    max_lng: float = Query(..., ge=-180, le=180),
+    limit: int = Query(default=200, ge=1, le=500),
+    session: AsyncSession = Depends(get_session),
+) -> CourseBboxResponse:
+    if min_lat >= max_lat or min_lng >= max_lng:
+        raise AppError(
+            "invalid_bbox",
+            "min_lat/min_lng must be less than max_lat/max_lng",
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    envelope = cast(func.ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326), Geography)
+
+    stmt = (
+        select(Course)
+        .where(Course.deleted_at.is_(None))
+        .where(func.ST_Intersects(Course.location, envelope))
+        .limit(limit)
+    )
+
+    result = await session.execute(stmt)
+    return CourseBboxResponse(items=list(result.scalars()))
 
 
 @router.get("/{course_id}", response_model=CourseRead)

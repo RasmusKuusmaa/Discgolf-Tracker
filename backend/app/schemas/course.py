@@ -85,3 +85,7 @@ class CourseNearby(CourseSummary):
 
 class CourseNearbyResponse(BaseModel):
     items: list[CourseNearby]
+
+
+class CourseBboxResponse(BaseModel):
+    items: list[CourseSummary]
