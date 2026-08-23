@@ -26,3 +26,17 @@ async def is_blocked_pair(
 ) -> bool:
     friendship = await find_pair_friendship(session, user_a_id, user_b_id)
     return friendship is not None and friendship.status == FriendshipStatus.BLOCKED
+
+
+async def accepted_friend_ids(session: AsyncSession, user_id: uuid.UUID) -> list[uuid.UUID]:
+    result = await session.execute(
+        select(Friendship).where(
+            Friendship.deleted_at.is_(None),
+            Friendship.status == FriendshipStatus.ACCEPTED,
+            or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id),
+        )
+    )
+    return [
+        f.addressee_id if f.requester_id == user_id else f.requester_id
+        for f in result.scalars()
+    ]

@@ -10,6 +10,7 @@ from app.api.routes.courses import router as courses_router
 from app.api.routes.feed import router as feed_router
 from app.api.routes.friends import router as friends_router
 from app.api.routes.layouts import router as layouts_router
+from app.api.routes.leaderboards import router as leaderboards_router
 from app.api.routes.rounds import router as rounds_router
 from app.api.routes.stats import router as stats_router
 from app.api.routes.users import router as users_router
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(stats_router)
     app.include_router(friends_router)
     app.include_router(feed_router)
+    app.include_router(leaderboards_router)
 
     return app
 

@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.errors import AppError
+from app.core.friendships import accepted_friend_ids
 from app.db.session import get_session
 from app.models.course import Course
-from app.models.friendship import Friendship, FriendshipStatus
 from app.models.hole import Hole
 from app.models.hole_score import HoleScore
 from app.models.layout import Layout
@@ -39,20 +39,6 @@ def _decode_feed_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         ) from exc
 
 
-async def _accepted_friend_ids(session: AsyncSession, user_id: uuid.UUID) -> list[uuid.UUID]:
-    result = await session.execute(
-        select(Friendship).where(
-            Friendship.deleted_at.is_(None),
-            Friendship.status == FriendshipStatus.ACCEPTED,
-            or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id),
-        )
-    )
-    return [
-        f.addressee_id if f.requester_id == user_id else f.requester_id
-        for f in result.scalars()
-    ]
-
-
 @router.get("/feed", response_model=FeedResponse)
 async def get_feed(
     cursor: str | None = None,
@@ -60,7 +46,7 @@ async def get_feed(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> FeedResponse:
-    friend_ids = await _accepted_friend_ids(session, user.id)
+    friend_ids = await accepted_friend_ids(session, user.id)
     if not friend_ids:
         return FeedResponse(items=[])
 
