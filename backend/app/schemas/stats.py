@@ -28,3 +28,26 @@ class StatsSummary(BaseModel):
     best_round: BestRound | None
     total_holes_played: int
     score_distribution: ScoreDistribution
+
+
+class LayoutTrendPoint(BaseModel):
+    round_id: uuid.UUID
+    completed_at: datetime
+    score_to_par: int
+
+
+class LayoutHoleAverage(BaseModel):
+    hole_id: uuid.UUID
+    hole_number: int
+    par: int
+    average_strokes: float
+    attempts: int
+
+
+class LayoutStats(BaseModel):
+    layout_id: uuid.UUID
+    rounds_played: int
+    best_score_to_par: int | None
+    average_score_to_par: float | None
+    trend: list[LayoutTrendPoint]
+    hole_averages: list[LayoutHoleAverage]
