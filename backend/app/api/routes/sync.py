@@ -28,6 +28,7 @@ from app.schemas.geo import coordinates_from_geography
 from app.schemas.sync import (
     ClientMutation,
     CourseMutationData,
+    LayoutMutationData,
     MutationEntityType,
     MutationOp,
     MutationResult,
@@ -362,10 +363,81 @@ async def _handle_course_mutation(
     await session.flush()
 
 
+async def _handle_layout_mutation(
+    session: AsyncSession, user: User, mutation: ClientMutation
+) -> None:
+    layout = await session.get(Layout, mutation.entity_id)
+
+    if mutation.op == MutationOp.DELETE:
+        if layout is None:
+            raise AppError("not_found", "Layout not found", status.HTTP_404_NOT_FOUND)
+        course = await session.get(Course, layout.course_id)
+        if course is not None:
+            _check_owner(course.created_by_id, user)
+        _check_stale(mutation.updated_at, layout.updated_at)
+        has_rounds = await session.execute(
+            select(func.count(Round.id)).where(Round.layout_id == layout.id)
+        )
+        if has_rounds.scalar_one() > 0:
+            raise AppError(
+                "layout_has_rounds",
+                "Cannot delete a layout with recorded rounds",
+                status.HTTP_409_CONFLICT,
+            )
+        layout.deleted_at = mutation.updated_at
+        layout.updated_at = mutation.updated_at
+        return
+
+    data = LayoutMutationData.model_validate(mutation.data)
+
+    if layout is None:
+        if mutation.op == MutationOp.UPDATE:
+            raise AppError("not_found", "Layout not found", status.HTTP_404_NOT_FOUND)
+        if data.course_id is None or data.name is None:
+            raise AppError(
+                "invalid_data",
+                "course_id and name are required to create a layout",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        course = await session.get(Course, data.course_id)
+        if course is None:
+            raise AppError("course_not_found", "Course not found", status.HTTP_404_NOT_FOUND)
+        _check_owner(course.created_by_id, user)
+        layout = Layout(
+            id=mutation.entity_id,
+            course_id=data.course_id,
+            name=data.name,
+            difficulty=data.difficulty,
+            is_default=data.is_default or False,
+            is_active=data.is_active if data.is_active is not None else True,
+            updated_at=mutation.updated_at,
+        )
+        session.add(layout)
+        await session.flush()
+        return
+
+    course = await session.get(Course, layout.course_id)
+    if course is not None:
+        _check_owner(course.created_by_id, user)
+    _check_stale(mutation.updated_at, layout.updated_at)
+
+    if data.name is not None:
+        layout.name = data.name
+    if data.difficulty is not None:
+        layout.difficulty = data.difficulty
+    if data.is_default is not None:
+        layout.is_default = data.is_default
+    if data.is_active is not None:
+        layout.is_active = data.is_active
+    layout.updated_at = mutation.updated_at
+    await session.flush()
+
+
 _MUTATION_HANDLERS: dict[
     MutationEntityType, Callable[[AsyncSession, User, ClientMutation], Awaitable[None]]
 ] = {
     MutationEntityType.COURSE: _handle_course_mutation,
+    MutationEntityType.LAYOUT: _handle_layout_mutation,
 }
 
 
