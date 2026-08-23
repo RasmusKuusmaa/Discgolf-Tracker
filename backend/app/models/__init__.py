@@ -12,6 +12,7 @@ from app.models.round_player import RoundPlayer
 from app.models.user import User
 from app.models.user_achievement import UserAchievement
 from app.models.user_layout_stats import UserLayoutStats
+from app.models.xp_event import XpEvent
 
 __all__ = [
     "Achievement",
@@ -28,4 +29,5 @@ __all__ = [
     "User",
     "UserAchievement",
     "UserLayoutStats",
+    "XpEvent",
 ]
