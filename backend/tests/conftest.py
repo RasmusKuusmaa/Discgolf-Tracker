@@ -1,15 +1,24 @@
 from collections.abc import AsyncIterator
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.db.session import get_session
 from app.main import app
 
 settings = get_settings()
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/discgolf_test"
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> None:
+    """Rate limit state is global to the app, not per-test — reset it so one
+    test's requests can't exhaust another test's quota."""
+    limiter.reset()
 
 
 @pytest_asyncio.fixture
