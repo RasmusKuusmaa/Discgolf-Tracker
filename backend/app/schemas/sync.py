@@ -1,7 +1,8 @@
+import enum
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.course import CourseStatus, CourseVisibility
 from app.models.friendship import FriendshipStatus
@@ -123,3 +124,97 @@ class SyncPullResponse(BaseModel):
     scores: list[SyncHoleScore] = []
     friends: list[SyncFriendship] = []
     achievements: list[SyncUserAchievement] = []
+
+
+class MutationEntityType(enum.StrEnum):
+    COURSE = "course"
+    LAYOUT = "layout"
+    HOLE = "hole"
+    ROUND = "round"
+    ROUND_PLAYER = "round_player"
+    HOLE_SCORE = "hole_score"
+
+
+class MutationOp(enum.StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class ClientMutation(BaseModel):
+    entity_type: MutationEntityType
+    op: MutationOp
+    entity_id: uuid.UUID
+    updated_at: datetime
+    data: dict[str, object] = {}
+
+
+class SyncPushRequest(BaseModel):
+    mutations: list[ClientMutation] = Field(min_length=1)
+
+
+class MutationResult(BaseModel):
+    entity_type: MutationEntityType
+    entity_id: uuid.UUID
+    accepted: bool
+    reason: str | None = None
+
+
+class SyncPushResponse(BaseModel):
+    results: list[MutationResult]
+
+
+class CourseMutationData(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    location: Coordinates | None = None
+    visibility: CourseVisibility | None = None
+
+
+class LayoutMutationData(BaseModel):
+    course_id: uuid.UUID | None = None
+    name: str | None = None
+    difficulty: str | None = None
+    is_default: bool | None = None
+    is_active: bool | None = None
+
+
+class HoleMutationData(BaseModel):
+    layout_id: uuid.UUID | None = None
+    number: int | None = None
+    par: int | None = None
+    distance_m: float | None = None
+    tee_location: Coordinates | None = None
+    basket_location: Coordinates | None = None
+    elevation_delta_m: float | None = None
+    notes: str | None = None
+
+
+class RoundMutationData(BaseModel):
+    layout_id: uuid.UUID | None = None
+    started_at: datetime | None = None
+    is_practice: bool | None = None
+    weather_note: str | None = None
+    client_generated: bool | None = None
+
+
+class RoundPlayerMutationData(BaseModel):
+    round_id: uuid.UUID | None = None
+    user_id: uuid.UUID | None = None
+    guest_name: str | None = None
+    position: int | None = None
+    is_scorekeeper: bool | None = None
+
+
+class HoleScoreMutationData(BaseModel):
+    round_id: uuid.UUID | None = None
+    round_player_id: uuid.UUID | None = None
+    hole_id: uuid.UUID | None = None
+    strokes: int | None = None
+    penalty_strokes: int | None = None
+    is_circle_hit: bool | None = None
+    is_fairway_hit: bool | None = None
+    notes: str | None = None
