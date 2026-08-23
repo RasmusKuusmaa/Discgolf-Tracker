@@ -1,5 +1,6 @@
 import base64
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, status
 from geoalchemy2 import Geography
@@ -24,6 +25,7 @@ from app.schemas.course import (
     CourseNearbyResponse,
     CourseRead,
     CourseSummary,
+    CourseUpdate,
 )
 from app.schemas.geo import Coordinates
 
@@ -225,3 +227,54 @@ async def get_course(
         raise AppError("course_not_found", "Course not found", status.HTTP_404_NOT_FOUND)
 
     return course
+
+
+def _require_owner_or_admin(course: Course, user: User) -> None:
+    if course.created_by_id != user.id and not user.is_admin:
+        raise AppError(
+            "not_course_owner",
+            "Only the creator or an admin can do this",
+            status.HTTP_403_FORBIDDEN,
+        )
+
+
+@router.patch("/{course_id}", response_model=CourseRead)
+async def update_course(
+    course_id: uuid.UUID,
+    payload: CourseUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Course:
+    result = await session.execute(
+        _course_with_layouts_stmt().where(Course.id == course_id, Course.deleted_at.is_(None))
+    )
+    course = result.scalar_one_or_none()
+    if course is None:
+        raise AppError("course_not_found", "Course not found", status.HTTP_404_NOT_FOUND)
+
+    _require_owner_or_admin(course, user)
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(course, field, value)
+
+    await session.commit()
+    return course
+
+
+@router.delete("/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_course(
+    course_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    result = await session.execute(
+        select(Course).where(Course.id == course_id, Course.deleted_at.is_(None))
+    )
+    course = result.scalar_one_or_none()
+    if course is None:
+        raise AppError("course_not_found", "Course not found", status.HTTP_404_NOT_FOUND)
+
+    _require_owner_or_admin(course, user)
+
+    course.deleted_at = datetime.now(UTC)
+    await session.commit()
