@@ -18,6 +18,7 @@ from app.models.personal_best import PersonalBest
 from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user import User
+from app.models.user_layout_stats import UserLayoutStats
 from app.schemas.hole_score import HoleScoreUpsert, RoundScoresResponse, RoundScoresUpsert
 from app.schemas.round import (
     RoundCreate,
@@ -340,7 +341,7 @@ async def complete_round(
     round_.completed_at = datetime.now(UTC)
 
     if not round_.is_partial and not round_.is_practice:
-        await _update_personal_bests(session, round_)
+        await _update_stats_after_completion(session, round_)
 
     await session.commit()
 
@@ -348,7 +349,64 @@ async def complete_round(
     return result.scalar_one()
 
 
-async def _update_personal_bests(session: AsyncSession, round_: Round) -> None:
+async def _update_personal_best(
+    session: AsyncSession, round_: Round, player: RoundPlayer, score_to_par: int
+) -> None:
+    existing_result = await session.execute(
+        select(PersonalBest).where(
+            PersonalBest.user_id == player.user_id,
+            PersonalBest.layout_id == round_.layout_id,
+        )
+    )
+    personal_best = existing_result.scalar_one_or_none()
+
+    if personal_best is None:
+        session.add(
+            PersonalBest(
+                user_id=player.user_id,
+                layout_id=round_.layout_id,
+                best_score_to_par=score_to_par,
+                round_id=round_.id,
+                achieved_at=datetime.now(UTC),
+            )
+        )
+    elif score_to_par < personal_best.best_score_to_par:
+        personal_best.best_score_to_par = score_to_par
+        personal_best.round_id = round_.id
+        personal_best.achieved_at = datetime.now(UTC)
+
+
+async def _update_layout_stats(
+    session: AsyncSession, round_: Round, player: RoundPlayer, score_to_par: int
+) -> None:
+    existing_result = await session.execute(
+        select(UserLayoutStats).where(
+            UserLayoutStats.user_id == player.user_id,
+            UserLayoutStats.layout_id == round_.layout_id,
+        )
+    )
+    stats = existing_result.scalar_one_or_none()
+
+    if stats is None:
+        session.add(
+            UserLayoutStats(
+                user_id=player.user_id,
+                layout_id=round_.layout_id,
+                rounds_played=1,
+                total_score_to_par=score_to_par,
+                best_score_to_par=score_to_par,
+                last_played_at=round_.completed_at or datetime.now(UTC),
+            )
+        )
+    else:
+        stats.rounds_played += 1
+        stats.total_score_to_par += score_to_par
+        if stats.best_score_to_par is None or score_to_par < stats.best_score_to_par:
+            stats.best_score_to_par = score_to_par
+        stats.last_played_at = round_.completed_at or datetime.now(UTC)
+
+
+async def _update_stats_after_completion(session: AsyncSession, round_: Round) -> None:
     layout = await session.get(Layout, round_.layout_id)
     if layout is None:
         return
@@ -368,28 +426,8 @@ async def _update_personal_bests(session: AsyncSession, round_: Round) -> None:
         total = total_result.scalar_one() or 0
         score_to_par = total - layout.par_total
 
-        existing_result = await session.execute(
-            select(PersonalBest).where(
-                PersonalBest.user_id == player.user_id,
-                PersonalBest.layout_id == round_.layout_id,
-            )
-        )
-        personal_best = existing_result.scalar_one_or_none()
-
-        if personal_best is None:
-            session.add(
-                PersonalBest(
-                    user_id=player.user_id,
-                    layout_id=round_.layout_id,
-                    best_score_to_par=score_to_par,
-                    round_id=round_.id,
-                    achieved_at=datetime.now(UTC),
-                )
-            )
-        elif score_to_par < personal_best.best_score_to_par:
-            personal_best.best_score_to_par = score_to_par
-            personal_best.round_id = round_.id
-            personal_best.achieved_at = datetime.now(UTC)
+        await _update_personal_best(session, round_, player, score_to_par)
+        await _update_layout_stats(session, round_, player, score_to_par)
 
 
 @router.post("/{round_id}/abandon", response_model=RoundRead)

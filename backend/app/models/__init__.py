@@ -8,6 +8,7 @@ from app.models.refresh_token import RefreshToken
 from app.models.round import Round
 from app.models.round_player import RoundPlayer
 from app.models.user import User
+from app.models.user_layout_stats import UserLayoutStats
 
 __all__ = [
     "Course",
@@ -20,4 +21,5 @@ __all__ = [
     "Round",
     "RoundPlayer",
     "User",
+    "UserLayoutStats",
 ]

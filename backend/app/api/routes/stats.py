@@ -16,6 +16,7 @@ from app.models.layout import Layout
 from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user import User
+from app.models.user_layout_stats import UserLayoutStats
 from app.schemas.stats import (
     BestRound,
     HoleStats,
@@ -115,6 +116,21 @@ async def get_layout_stats(
     if layout is None or layout.deleted_at is not None:
         raise AppError("layout_not_found", "Layout not found", status.HTTP_404_NOT_FOUND)
 
+    stats_result = await session.execute(
+        select(UserLayoutStats).where(
+            UserLayoutStats.user_id == user.id, UserLayoutStats.layout_id == layout_id
+        )
+    )
+    layout_stats_row = stats_result.scalar_one_or_none()
+
+    rounds_played = layout_stats_row.rounds_played if layout_stats_row else 0
+    best_score_to_par = layout_stats_row.best_score_to_par if layout_stats_row else None
+    average_score_to_par = (
+        layout_stats_row.total_score_to_par / layout_stats_row.rounds_played
+        if layout_stats_row and layout_stats_row.rounds_played
+        else None
+    )
+
     rows_stmt = (
         select(
             Round.id,
@@ -133,6 +149,8 @@ async def get_layout_stats(
             RoundPlayer.user_id == user.id,
             Round.layout_id == layout_id,
             Round.status == RoundStatus.COMPLETED,
+            Round.is_practice.is_(False),
+            Round.is_partial.is_(False),
         )
     )
     rows = (await session.execute(rows_stmt)).all()
@@ -149,12 +167,6 @@ async def get_layout_stats(
         hole_totals[hole_id] += strokes + penalty_strokes
         hole_attempts[hole_id] += 1
         hole_info[hole_id] = (number, par)
-
-    rounds_played = len(round_totals)
-    best_score_to_par = min(round_totals.values()) if round_totals else None
-    average_score_to_par = (
-        (sum(round_totals.values()) / rounds_played) if rounds_played else None
-    )
 
     trend_round_ids = sorted(round_totals, key=lambda rid: round_completed_at[rid])[-10:]
     trend = [
