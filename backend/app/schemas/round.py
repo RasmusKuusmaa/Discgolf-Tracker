@@ -77,24 +77,27 @@ class RoundListResponse(BaseModel):
 
 
 class ScorecardHoleScore(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     hole_id: uuid.UUID
+    hole_number: int
+    par: int
     strokes: int
     penalty_strokes: int
+    diff_to_par: int
+    running_total: int
     is_circle_hit: bool | None
     is_fairway_hit: bool | None
     notes: str | None
 
 
 class ScorecardPlayer(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: uuid.UUID
     user_id: uuid.UUID | None
     guest_name: str | None
     position: int
     is_scorekeeper: bool
+    total_strokes: int
+    total_penalties: int
+    score_to_par: int
     scores: list[ScorecardHoleScore] = []
 
 

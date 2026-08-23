@@ -22,6 +22,7 @@ from app.schemas.round import (
     RoundDetailResponse,
     RoundListResponse,
     RoundRead,
+    ScorecardHoleScore,
     ScorecardPlayer,
 )
 
@@ -150,6 +151,44 @@ async def list_rounds(
     return RoundListResponse(items=rounds, next_cursor=next_cursor)
 
 
+def _build_scorecard_player(
+    player: RoundPlayer, holes_by_id: dict[uuid.UUID, Hole]
+) -> ScorecardPlayer:
+    ordered_scores = sorted(player.hole_scores, key=lambda s: holes_by_id[s.hole_id].number)
+
+    scores = []
+    running_total = 0
+    for score in ordered_scores:
+        hole = holes_by_id[score.hole_id]
+        running_total += score.strokes + score.penalty_strokes
+        scores.append(
+            ScorecardHoleScore(
+                hole_id=score.hole_id,
+                hole_number=hole.number,
+                par=hole.par,
+                strokes=score.strokes,
+                penalty_strokes=score.penalty_strokes,
+                diff_to_par=score.strokes + score.penalty_strokes - hole.par,
+                running_total=running_total,
+                is_circle_hit=score.is_circle_hit,
+                is_fairway_hit=score.is_fairway_hit,
+                notes=score.notes,
+            )
+        )
+
+    return ScorecardPlayer(
+        id=player.id,
+        user_id=player.user_id,
+        guest_name=player.guest_name,
+        position=player.position,
+        is_scorekeeper=player.is_scorekeeper,
+        total_strokes=sum(s.strokes for s in scores),
+        total_penalties=sum(s.penalty_strokes for s in scores),
+        score_to_par=sum(s.diff_to_par for s in scores),
+        scores=scores,
+    )
+
+
 @router.get("/{round_id}", response_model=RoundDetailResponse)
 async def get_round(
     round_id: uuid.UUID,
@@ -168,17 +207,8 @@ async def get_round(
     )
     round_ = result.scalar_one()
 
-    players = [
-        ScorecardPlayer(
-            id=player.id,
-            user_id=player.user_id,
-            guest_name=player.guest_name,
-            position=player.position,
-            is_scorekeeper=player.is_scorekeeper,
-            scores=list(player.hole_scores),
-        )
-        for player in round_.players
-    ]
+    holes_by_id = {hole.id: hole for hole in round_.layout.holes}
+    players = [_build_scorecard_player(player, holes_by_id) for player in round_.players]
 
     return RoundDetailResponse(
         id=round_.id,
