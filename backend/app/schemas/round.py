@@ -84,6 +84,7 @@ class ScorecardHoleScore(BaseModel):
     penalty_strokes: int
     diff_to_par: int
     running_total: int
+    term: str
     is_circle_hit: bool | None
     is_fairway_hit: bool | None
     notes: str | None

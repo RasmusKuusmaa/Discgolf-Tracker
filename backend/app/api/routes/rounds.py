@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.core.errors import AppError
+from app.core.scoring import score_term
 from app.db.session import get_session
 from app.models.hole import Hole
 from app.models.hole_score import HoleScore
@@ -171,6 +172,7 @@ def _build_scorecard_player(
                 penalty_strokes=score.penalty_strokes,
                 diff_to_par=score.strokes + score.penalty_strokes - hole.par,
                 running_total=running_total,
+                term=score_term(score.strokes, score.penalty_strokes, hole.par),
                 is_circle_hit=score.is_circle_hit,
                 is_fairway_hit=score.is_fairway_hit,
                 notes=score.notes,
