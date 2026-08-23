@@ -20,7 +20,7 @@ from app.models.friendship import Friendship
 from app.models.hole import Hole
 from app.models.hole_score import HoleScore
 from app.models.layout import Layout
-from app.models.round import Round
+from app.models.round import Round, RoundStatus
 from app.models.round_player import RoundPlayer
 from app.models.user import User
 from app.models.user_achievement import UserAchievement
@@ -33,6 +33,7 @@ from app.schemas.sync import (
     MutationEntityType,
     MutationOp,
     MutationResult,
+    RoundMutationData,
     SyncCourse,
     SyncFriendship,
     SyncHole,
@@ -533,12 +534,78 @@ async def _handle_hole_mutation(
         await _recompute_layout_totals(session, hole.layout_id)
 
 
+async def _handle_round_mutation(
+    session: AsyncSession, user: User, mutation: ClientMutation
+) -> None:
+    round_ = await session.get(Round, mutation.entity_id)
+
+    if mutation.op == MutationOp.DELETE:
+        if round_ is None:
+            raise AppError("not_found", "Round not found", status.HTTP_404_NOT_FOUND)
+        _check_owner(round_.created_by_id, user)
+        if round_.status == RoundStatus.COMPLETED:
+            raise AppError(
+                "round_completed_immutable",
+                "Cannot delete a completed round",
+                status.HTTP_409_CONFLICT,
+            )
+        _check_stale(mutation.updated_at, round_.updated_at)
+        round_.deleted_at = mutation.updated_at
+        round_.updated_at = mutation.updated_at
+        return
+
+    data = RoundMutationData.model_validate(mutation.data)
+
+    if round_ is None:
+        if mutation.op == MutationOp.UPDATE:
+            raise AppError("not_found", "Round not found", status.HTTP_404_NOT_FOUND)
+        if data.layout_id is None:
+            raise AppError(
+                "invalid_data",
+                "layout_id is required to create a round",
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+            )
+        layout = await session.get(Layout, data.layout_id)
+        if layout is None:
+            raise AppError("layout_not_found", "Layout not found", status.HTTP_404_NOT_FOUND)
+        round_ = Round(
+            id=mutation.entity_id,
+            layout_id=data.layout_id,
+            created_by_id=user.id,
+            started_at=data.started_at or mutation.updated_at,
+            is_practice=data.is_practice or False,
+            weather_note=data.weather_note,
+            client_generated=data.client_generated if data.client_generated is not None else True,
+            updated_at=mutation.updated_at,
+        )
+        session.add(round_)
+        await session.flush()
+        return
+
+    _check_owner(round_.created_by_id, user)
+    if round_.status == RoundStatus.COMPLETED:
+        raise AppError(
+            "round_completed_immutable",
+            "Cannot modify a completed round",
+            status.HTTP_409_CONFLICT,
+        )
+    _check_stale(mutation.updated_at, round_.updated_at)
+
+    if data.is_practice is not None:
+        round_.is_practice = data.is_practice
+    if data.weather_note is not None:
+        round_.weather_note = data.weather_note
+    round_.updated_at = mutation.updated_at
+    await session.flush()
+
+
 _MUTATION_HANDLERS: dict[
     MutationEntityType, Callable[[AsyncSession, User, ClientMutation], Awaitable[None]]
 ] = {
     MutationEntityType.COURSE: _handle_course_mutation,
     MutationEntityType.LAYOUT: _handle_layout_mutation,
     MutationEntityType.HOLE: _handle_hole_mutation,
+    MutationEntityType.ROUND: _handle_round_mutation,
 }
 
 
