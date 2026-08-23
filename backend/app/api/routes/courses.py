@@ -11,10 +11,10 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_user, get_current_user_optional
 from app.core.errors import AppError
 from app.core.geo import to_point
+from app.core.hole_factory import build_hole
 from app.core.slugs import slugify
 from app.db.session import get_session
 from app.models.course import Course
-from app.models.hole import Hole
 from app.models.layout import Layout
 from app.models.user import User
 from app.schemas.course import (
@@ -86,20 +86,7 @@ async def create_course(
             is_default=layout_in.is_default,
         )
         for hole_in in layout_in.holes:
-            layout.holes.append(
-                Hole(
-                    id=hole_in.id,
-                    number=hole_in.number,
-                    par=hole_in.par,
-                    distance_m=hole_in.distance_m,
-                    tee_location=to_point(hole_in.tee_location) if hole_in.tee_location else None,
-                    basket_location=(
-                        to_point(hole_in.basket_location) if hole_in.basket_location else None
-                    ),
-                    elevation_delta_m=hole_in.elevation_delta_m,
-                    notes=hole_in.notes,
-                )
-            )
+            layout.holes.append(build_hole(hole_in))
         layout.recompute_totals()
         course.layouts.append(layout)
 
