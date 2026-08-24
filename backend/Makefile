@@ -1,4 +1,4 @@
-.PHONY: run test lint migrate revision
+.PHONY: run test lint migrate revision openapi
 
 run:
 	uv run uvicorn app.main:app --reload
@@ -15,3 +15,6 @@ migrate:
 
 revision:
 	uv run alembic revision --autogenerate -m "$(m)"
+
+openapi:
+	uv run python scripts/generate_openapi.py
