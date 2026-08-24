@@ -181,93 +181,167 @@ def _to_sync_user_achievement(
     )
 
 
-async def _pull_courses(session: AsyncSession, since: datetime | None) -> list[SyncCourse]:
-    stmt: Select[tuple[Course]] = select(Course).where(_since_clause(Course, since))
-    rows = (await session.execute(stmt)).scalars().all()
-    return [_to_sync_course(row) for row in rows]
+async def _paginated_rows(
+    session: AsyncSession, stmt: Select[Any], limit: int
+) -> tuple[list[Any], datetime | None]:
+    rows = list((await session.execute(stmt.limit(limit + 1))).scalars().all())
+    if len(rows) <= limit:
+        return rows, None
+    overflow_updated_at: datetime = rows[limit].updated_at
+    trimmed = [row for row in rows[:limit] if row.updated_at < overflow_updated_at]
+    if not trimmed:
+        # Every row in this page shares the exact same updated_at as the overflow row
+        # (only possible with colliding microsecond timestamps) - return them all rather
+        # than stalling with an empty page.
+        return rows[:limit], None
+    return trimmed, trimmed[-1].updated_at
 
 
-async def _pull_layouts(session: AsyncSession, since: datetime | None) -> list[SyncLayout]:
-    stmt: Select[tuple[Layout]] = select(Layout).where(_since_clause(Layout, since))
-    rows = (await session.execute(stmt)).scalars().all()
-    return [_to_sync_layout(row) for row in rows]
+async def _pull_courses(
+    session: AsyncSession, since: datetime | None, limit: int
+) -> tuple[list[SyncCourse], datetime | None]:
+    stmt: Select[tuple[Course]] = (
+        select(Course).where(_since_clause(Course, since)).order_by(Course.updated_at.asc())
+    )
+    rows, boundary = await _paginated_rows(session, stmt, limit)
+    return [_to_sync_course(row) for row in rows], boundary
 
 
-async def _pull_holes(session: AsyncSession, since: datetime | None) -> list[SyncHole]:
-    stmt: Select[tuple[Hole]] = select(Hole).where(_since_clause(Hole, since))
-    rows = (await session.execute(stmt)).scalars().all()
-    return [_to_sync_hole(row) for row in rows]
+async def _pull_layouts(
+    session: AsyncSession, since: datetime | None, limit: int
+) -> tuple[list[SyncLayout], datetime | None]:
+    stmt: Select[tuple[Layout]] = (
+        select(Layout).where(_since_clause(Layout, since)).order_by(Layout.updated_at.asc())
+    )
+    rows, boundary = await _paginated_rows(session, stmt, limit)
+    return [_to_sync_layout(row) for row in rows], boundary
+
+
+async def _pull_holes(
+    session: AsyncSession, since: datetime | None, limit: int
+) -> tuple[list[SyncHole], datetime | None]:
+    stmt: Select[tuple[Hole]] = (
+        select(Hole).where(_since_clause(Hole, since)).order_by(Hole.updated_at.asc())
+    )
+    rows, boundary = await _paginated_rows(session, stmt, limit)
+    return [_to_sync_hole(row) for row in rows], boundary
 
 
 async def _pull_rounds(
-    session: AsyncSession, user_id: uuid.UUID, since: datetime | None
-) -> list[SyncRound]:
+    session: AsyncSession, user_id: uuid.UUID, since: datetime | None, limit: int
+) -> tuple[list[SyncRound], datetime | None]:
     user_round_ids = select(RoundPlayer.round_id).where(RoundPlayer.user_id == user_id)
     stmt: Select[tuple[Round]] = (
         select(Round)
         .where(Round.id.in_(user_round_ids))
         .where(_since_clause(Round, since))
         .options(selectinload(Round.players))
+        .order_by(Round.updated_at.asc())
     )
-    rows = (await session.execute(stmt)).scalars().all()
-    return [_to_sync_round(row) for row in rows]
+    rows, boundary = await _paginated_rows(session, stmt, limit)
+    return [_to_sync_round(row) for row in rows], boundary
 
 
 async def _pull_hole_scores(
-    session: AsyncSession, user_id: uuid.UUID, since: datetime | None
-) -> list[SyncHoleScore]:
+    session: AsyncSession, user_id: uuid.UUID, since: datetime | None, limit: int
+) -> tuple[list[SyncHoleScore], datetime | None]:
     user_round_ids = select(RoundPlayer.round_id).where(RoundPlayer.user_id == user_id)
     stmt: Select[tuple[HoleScore]] = (
         select(HoleScore)
         .where(HoleScore.round_id.in_(user_round_ids))
         .where(_since_clause(HoleScore, since))
+        .order_by(HoleScore.updated_at.asc())
     )
-    rows = (await session.execute(stmt)).scalars().all()
-    return [_to_sync_hole_score(row) for row in rows]
+    rows, boundary = await _paginated_rows(session, stmt, limit)
+    return [_to_sync_hole_score(row) for row in rows], boundary
 
 
 async def _pull_friendships(
-    session: AsyncSession, user_id: uuid.UUID, since: datetime | None
-) -> list[SyncFriendship]:
+    session: AsyncSession, user_id: uuid.UUID, since: datetime | None, limit: int
+) -> tuple[list[SyncFriendship], datetime | None]:
     stmt: Select[tuple[Friendship]] = (
         select(Friendship)
         .where(or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id))
         .where(_since_clause(Friendship, since))
+        .order_by(Friendship.updated_at.asc())
     )
-    rows = (await session.execute(stmt)).scalars().all()
-    return [_to_sync_friendship(row) for row in rows]
+    rows, boundary = await _paginated_rows(session, stmt, limit)
+    return [_to_sync_friendship(row) for row in rows], boundary
 
 
 async def _pull_user_achievements(
-    session: AsyncSession, user_id: uuid.UUID, since: datetime | None
-) -> list[SyncUserAchievement]:
+    session: AsyncSession, user_id: uuid.UUID, since: datetime | None, limit: int
+) -> tuple[list[SyncUserAchievement], datetime | None]:
     stmt = (
         select(UserAchievement, Achievement.code)
         .join(Achievement, Achievement.id == UserAchievement.achievement_id)
         .where(UserAchievement.user_id == user_id)
         .where(_since_clause(UserAchievement, since))
+        .order_by(UserAchievement.updated_at.asc())
+        .limit(limit + 1)
     )
     rows = (await session.execute(stmt)).all()
-    return [_to_sync_user_achievement(row.UserAchievement, row.code) for row in rows]
+    if len(rows) <= limit:
+        return [_to_sync_user_achievement(row.UserAchievement, row.code) for row in rows], None
+    overflow_updated_at = rows[limit].UserAchievement.updated_at
+    trimmed = [
+        row for row in rows[:limit] if row.UserAchievement.updated_at < overflow_updated_at
+    ]
+    if not trimmed:
+        return (
+            [_to_sync_user_achievement(row.UserAchievement, row.code) for row in rows[:limit]],
+            None,
+        )
+    return (
+        [_to_sync_user_achievement(row.UserAchievement, row.code) for row in trimmed],
+        trimmed[-1].UserAchievement.updated_at,
+    )
 
 
 @router.get("/pull", response_model=SyncPullResponse)
 async def pull_sync(
     since: datetime | None = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=2000),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> SyncPullResponse:
-    cursor = datetime.now(UTC)
+    now = datetime.now(UTC)
+
+    courses, courses_boundary = await _pull_courses(session, since, limit)
+    layouts, layouts_boundary = await _pull_layouts(session, since, limit)
+    holes, holes_boundary = await _pull_holes(session, since, limit)
+    rounds, rounds_boundary = await _pull_rounds(session, user.id, since, limit)
+    scores, scores_boundary = await _pull_hole_scores(session, user.id, since, limit)
+    friends, friends_boundary = await _pull_friendships(session, user.id, since, limit)
+    achievements, achievements_boundary = await _pull_user_achievements(
+        session, user.id, since, limit
+    )
+
+    boundaries = [
+        boundary
+        for boundary in (
+            courses_boundary,
+            layouts_boundary,
+            holes_boundary,
+            rounds_boundary,
+            scores_boundary,
+            friends_boundary,
+            achievements_boundary,
+        )
+        if boundary is not None
+    ]
+    has_more = bool(boundaries)
 
     return SyncPullResponse(
-        cursor=cursor,
-        courses=await _pull_courses(session, since),
-        layouts=await _pull_layouts(session, since),
-        holes=await _pull_holes(session, since),
-        rounds=await _pull_rounds(session, user.id, since),
-        scores=await _pull_hole_scores(session, user.id, since),
-        friends=await _pull_friendships(session, user.id, since),
-        achievements=await _pull_user_achievements(session, user.id, since),
+        next_cursor=min(boundaries) if has_more else now,
+        has_more=has_more,
+        courses=courses,
+        layouts=layouts,
+        holes=holes,
+        rounds=rounds,
+        scores=scores,
+        friends=friends,
+        achievements=achievements,
     )
 
 

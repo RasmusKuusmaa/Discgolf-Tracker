@@ -116,7 +116,8 @@ class SyncUserAchievement(BaseModel):
 
 
 class SyncPullResponse(BaseModel):
-    cursor: datetime
+    next_cursor: datetime
+    has_more: bool = False
     courses: list[SyncCourse] = []
     layouts: list[SyncLayout] = []
     holes: list[SyncHole] = []
