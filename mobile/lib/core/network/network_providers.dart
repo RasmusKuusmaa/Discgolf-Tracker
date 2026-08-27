@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/local/secure_token_store.dart';
 import '../../data/local/token_store.dart';
 import '../../data/remote/auth_api.dart';
+import '../../data/remote/courses_api.dart';
 import '../../data/remote/users_api.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import 'api_client.dart';
@@ -35,6 +36,10 @@ final Provider<AuthApi> authApiProvider = Provider<AuthApi>((ref) {
 
 final Provider<UsersApi> usersApiProvider = Provider<UsersApi>((ref) {
   return UsersApi(ref.watch(dioProvider));
+});
+
+final Provider<CoursesApi> coursesApiProvider = Provider<CoursesApi>((ref) {
+  return CoursesApi(ref.watch(dioProvider));
 });
 
 final Provider<ConnectivityService> connectivityServiceProvider = Provider<ConnectivityService>((
