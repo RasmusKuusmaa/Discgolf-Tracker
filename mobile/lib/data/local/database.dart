@@ -11,6 +11,7 @@ import 'tables/friendships_table.dart';
 import 'tables/hole_scores_table.dart';
 import 'tables/holes_table.dart';
 import 'tables/layouts_table.dart';
+import 'tables/mutation_queue_table.dart';
 import 'tables/round_players_table.dart';
 import 'tables/rounds_table.dart';
 import 'tables/user_layout_stats_table.dart';
@@ -28,6 +29,7 @@ part 'database.g.dart';
     Friendships,
     Achievements,
     UserLayoutStats,
+    MutationQueue,
   ],
 )
 class AppDatabase extends _$AppDatabase {
