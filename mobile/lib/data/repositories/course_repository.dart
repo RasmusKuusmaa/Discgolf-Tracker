@@ -1,7 +1,6 @@
-import 'dart:math' as math;
-
 import 'package:drift/drift.dart';
 
+import '../../core/geo/haversine.dart';
 import '../../domain/models/course.dart';
 import '../../domain/models/hole.dart';
 import '../../domain/models/layout.dart';
@@ -48,7 +47,7 @@ class CourseRepository extends LocalFirstRepository {
     final List<schema.Course> rows = await db.select(db.courses).get();
     final List<(schema.Course, double)> withDistance =
         rows
-            .map((row) => (row, _haversineKm(lat, lng, row.latitude, row.longitude)))
+            .map((row) => (row, haversineKm(lat, lng, row.latitude, row.longitude)))
             .where((entry) => entry.$2 <= radiusKm)
             .toList()
           ..sort((a, b) => a.$2.compareTo(b.$2));
@@ -207,19 +206,3 @@ class CourseRepository extends LocalFirstRepository {
     );
   }
 }
-
-double _haversineKm(double lat1, double lng1, double lat2, double lng2) {
-  const double earthRadiusKm = 6371;
-  final double dLat = _degToRad(lat2 - lat1);
-  final double dLng = _degToRad(lng2 - lng1);
-  final double a =
-      math.sin(dLat / 2) * math.sin(dLat / 2) +
-      math.cos(_degToRad(lat1)) *
-          math.cos(_degToRad(lat2)) *
-          math.sin(dLng / 2) *
-          math.sin(dLng / 2);
-  final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-  return earthRadiusKm * c;
-}
-
-double _degToRad(double deg) => deg * (math.pi / 180);
