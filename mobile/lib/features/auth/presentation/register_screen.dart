@@ -1,8 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/errors/api_exception.dart';
+import '../../../core/network/network_providers.dart';
 import '../../../domain/models/auth_state.dart';
 import '../providers/auth_controller.dart';
+
+enum _UsernameCheck { idle, checking, available, taken, unknown }
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -26,6 +32,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   bool _obscurePassword = true;
   String _password = '';
+  Timer? _usernameDebounce;
+  int _usernameCheckToken = 0;
+  _UsernameCheck _usernameCheck = _UsernameCheck.idle;
 
   @override
   void initState() {
@@ -37,12 +46,43 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   void dispose() {
+    _usernameDebounce?.cancel();
     _emailController.dispose();
     _usernameController.dispose();
     _displayNameController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  void _onUsernameChanged(String value) {
+    _usernameDebounce?.cancel();
+    final String candidate = value.trim();
+    if (candidate.length < 3 || !_usernamePattern.hasMatch(candidate)) {
+      setState(() => _usernameCheck = _UsernameCheck.idle);
+      return;
+    }
+
+    setState(() => _usernameCheck = _UsernameCheck.checking);
+    final int token = ++_usernameCheckToken;
+    _usernameDebounce = Timer(const Duration(milliseconds: 500), () async {
+      try {
+        final bool available = await ref
+            .read(usersApiProvider)
+            .isUsernameAvailable(candidate);
+        if (!mounted || token != _usernameCheckToken) {
+          return;
+        }
+        setState(() {
+          _usernameCheck = available ? _UsernameCheck.available : _UsernameCheck.taken;
+        });
+      } on ApiException {
+        if (!mounted || token != _usernameCheckToken) {
+          return;
+        }
+        setState(() => _usernameCheck = _UsernameCheck.unknown);
+      }
+    });
   }
 
   void _submit() {
@@ -108,10 +148,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       controller: _usernameController,
                       enabled: !isSubmitting,
                       textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Username',
                         helperText: '3-32 characters: letters, numbers, underscore',
+                        suffixIcon: _usernameStatusIcon(context),
                       ),
+                      onChanged: _onUsernameChanged,
                       validator: (value) {
                         final String candidate = value?.trim() ?? '';
                         if (candidate.length < 3 || candidate.length > 32) {
@@ -119,6 +161,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         }
                         if (!_usernamePattern.hasMatch(candidate)) {
                           return 'Only letters, numbers and underscore allowed';
+                        }
+                        if (_usernameCheck == _UsernameCheck.taken) {
+                          return 'That username is already taken';
                         }
                         return null;
                       },
@@ -202,6 +247,27 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         ),
       ),
     );
+  }
+
+  Widget? _usernameStatusIcon(BuildContext context) {
+    switch (_usernameCheck) {
+      case _UsernameCheck.idle:
+      case _UsernameCheck.unknown:
+        return null;
+      case _UsernameCheck.checking:
+        return const Padding(
+          padding: EdgeInsets.all(12),
+          child: SizedBox(
+            height: 16,
+            width: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      case _UsernameCheck.available:
+        return Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary);
+      case _UsernameCheck.taken:
+        return Icon(Icons.cancel, color: Theme.of(context).colorScheme.error);
+    }
   }
 }
 
