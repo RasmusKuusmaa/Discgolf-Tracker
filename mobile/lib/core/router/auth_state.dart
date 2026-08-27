@@ -1,18 +1,42 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Minimal auth signal for router redirects.
-///
-/// Replaced by the real session state in Phase 10 (`AuthController`), which
-/// will update [isAuthenticated] as the session is restored, logged in, or
-/// logged out.
-class AuthState extends ChangeNotifier {
-  bool _isAuthenticated = false;
+import '../../domain/models/auth_state.dart' as domain;
+import '../../features/auth/providers/auth_controller.dart';
 
-  bool get isAuthenticated => _isAuthenticated;
+/// Bridges [AuthController]'s Riverpod state to `go_router`'s
+/// `Listenable`-based `refreshListenable`, so redirects re-evaluate
+/// whenever the session changes (restored, logged in, logged out).
+class RouterAuthNotifier extends ChangeNotifier {
+  RouterAuthNotifier(this._ref) {
+    _subscription = _ref.listen<domain.AuthState>(
+      authControllerProvider,
+      (previous, next) => notifyListeners(),
+    );
+  }
 
-  void setAuthenticated(bool value) {
-    if (_isAuthenticated == value) return;
-    _isAuthenticated = value;
-    notifyListeners();
+  final Ref _ref;
+  late final ProviderSubscription<domain.AuthState> _subscription;
+
+  domain.AuthState get _state => _ref.read(authControllerProvider);
+
+  /// True while the session is still being restored on launch — the
+  /// router shows a splash screen instead of routing to login or home.
+  bool get isResolving =>
+      _state is domain.AuthInitial || _state is domain.AuthAuthenticating;
+
+  bool get isAuthenticated => _state is domain.AuthAuthenticated;
+
+  @override
+  void dispose() {
+    _subscription.close();
+    super.dispose();
   }
 }
+
+final Provider<RouterAuthNotifier> routerAuthNotifierProvider =
+    Provider<RouterAuthNotifier>((ref) {
+      final RouterAuthNotifier notifier = RouterAuthNotifier(ref);
+      ref.onDispose(notifier.dispose);
+      return notifier;
+    });

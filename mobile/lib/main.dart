@@ -6,12 +6,8 @@ import 'core/router/app_router.dart';
 import 'core/router/auth_state.dart';
 import 'core/theme/app_theme.dart';
 
-final authStateProvider = Provider<AuthState>((ref) {
-  return AuthState();
-});
-
 final appRouterProvider = Provider<GoRouter>((ref) {
-  return buildAppRouter(ref.watch(authStateProvider));
+  return buildAppRouter(ref.watch(routerAuthNotifierProvider));
 });
 
 void main() {
