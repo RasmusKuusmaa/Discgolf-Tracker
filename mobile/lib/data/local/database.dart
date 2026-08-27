@@ -38,6 +38,15 @@ class AppDatabase extends _$AppDatabase {
   @override
   int get schemaVersion => 1;
 
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (Migrator m) => m.createAll(),
+    // No schema versions beyond 1 exist yet — each future bump adds a
+    // `if (from < N) { ... }` step here rather than replacing this one,
+    // so upgrading across several versions in one launch still works.
+    onUpgrade: (Migrator m, int from, int to) async {},
+  );
+
   static LazyDatabase _openConnection() {
     return LazyDatabase(() async {
       final Directory directory = await getApplicationDocumentsDirectory();
