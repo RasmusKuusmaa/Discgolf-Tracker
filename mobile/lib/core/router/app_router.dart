@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/auth/presentation/register_screen.dart';
 import '../../features/courses/presentation/courses_screen.dart';
 import '../../features/friends/presentation/friends_screen.dart';
 import '../../features/play/presentation/play_screen.dart';
@@ -10,6 +11,7 @@ import 'app_shell.dart';
 import 'auth_state.dart';
 
 const _loginPath = '/login';
+const _registerPath = '/register';
 const _playPath = '/play';
 
 GoRouter buildAppRouter(AuthState authState) {
@@ -17,12 +19,13 @@ GoRouter buildAppRouter(AuthState authState) {
     initialLocation: _playPath,
     refreshListenable: authState,
     redirect: (context, state) {
-      final isLoggingIn = state.matchedLocation == _loginPath;
+      final isAuthRoute =
+          state.matchedLocation == _loginPath || state.matchedLocation == _registerPath;
 
-      if (!authState.isAuthenticated && !isLoggingIn) {
+      if (!authState.isAuthenticated && !isAuthRoute) {
         return _loginPath;
       }
-      if (authState.isAuthenticated && isLoggingIn) {
+      if (authState.isAuthenticated && isAuthRoute) {
         return _playPath;
       }
       return null;
@@ -31,6 +34,10 @@ GoRouter buildAppRouter(AuthState authState) {
       GoRoute(
         path: _loginPath,
         builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: _registerPath,
+        builder: (context, state) => const RegisterScreen(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
