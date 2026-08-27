@@ -8,6 +8,7 @@ import '../../data/remote/users_api.dart';
 import '../../features/auth/providers/auth_controller.dart';
 import 'api_client.dart';
 import 'auth_interceptor.dart';
+import 'connectivity_service.dart';
 
 final Provider<TokenStore> tokenStoreProvider = Provider<TokenStore>((ref) {
   return SecureTokenStore();
@@ -34,4 +35,14 @@ final Provider<AuthApi> authApiProvider = Provider<AuthApi>((ref) {
 
 final Provider<UsersApi> usersApiProvider = Provider<UsersApi>((ref) {
   return UsersApi(ref.watch(dioProvider));
+});
+
+final Provider<ConnectivityService> connectivityServiceProvider = Provider<ConnectivityService>((
+  ref,
+) {
+  return ConnectivityService();
+});
+
+final StreamProvider<bool> onlineStatusProvider = StreamProvider<bool>((ref) {
+  return ref.watch(connectivityServiceProvider).onlineStatus;
 });
