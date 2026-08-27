@@ -25,6 +25,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final TextEditingController _confirmPasswordController = TextEditingController();
 
   bool _obscurePassword = true;
+  String _password = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(() {
+      setState(() => _password = _passwordController.text);
+    });
+  }
 
   @override
   void dispose() {
@@ -157,6 +166,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         return null;
                       },
                     ),
+                    const SizedBox(height: 8),
+                    _PasswordRulesChecklist(password: _password),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _confirmPasswordController,
@@ -189,6 +200,40 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PasswordRulesChecklist extends StatelessWidget {
+  const _PasswordRulesChecklist({required this.password});
+
+  final String password;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _rule(context, 'At least 8 characters', password.length >= 8),
+        _rule(context, 'Contains a letter', RegExp('[A-Za-z]').hasMatch(password)),
+        _rule(context, 'Contains a number', RegExp('[0-9]').hasMatch(password)),
+      ],
+    );
+  }
+
+  Widget _rule(BuildContext context, String label, bool met) {
+    final Color color = met
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(met ? Icons.check_circle_outline : Icons.circle_outlined, size: 16, color: color),
+          const SizedBox(width: 8),
+          Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color)),
+        ],
       ),
     );
   }
