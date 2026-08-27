@@ -11,7 +11,9 @@ class Courses extends Table with SyncableColumns {
   TextColumn get country => text().nullable()();
   RealColumn get latitude => real()();
   RealColumn get longitude => real()();
-  TextColumn get createdById => text()();
+  // Nullable: list/nearby/bbox responses omit the creator, only the detail
+  // fetch includes it.
+  TextColumn get createdById => text().nullable()();
   TextColumn get visibility => text()();
   TextColumn get status => text()();
   TextColumn get osmId => text().nullable()();
