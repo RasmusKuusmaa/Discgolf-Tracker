@@ -15,7 +15,10 @@ part 'auth_controller.g.dart';
 
 /// Owns the app's session state and restores it from stored tokens on
 /// launch, so callers only ever need to watch [AuthState].
-@riverpod
+///
+/// `keepAlive` because this is global session state — it must not reset
+/// itself just because no widget happens to be watching it at some moment.
+@Riverpod(keepAlive: true)
 class AuthController extends _$AuthController {
   @override
   AuthState build() {
