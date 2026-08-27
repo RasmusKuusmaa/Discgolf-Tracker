@@ -6,6 +6,7 @@ import '../../../core/errors/api_exception.dart';
 import '../../../core/network/network_providers.dart';
 import '../../../data/local/token_store.dart';
 import '../../../data/remote/auth_api.dart';
+import '../../../data/remote/users_api.dart';
 import '../../../domain/models/auth_state.dart';
 import '../../../domain/models/auth_tokens.dart';
 import '../../../domain/models/user.dart';
@@ -23,6 +24,7 @@ class AuthController extends _$AuthController {
   }
 
   AuthApi get _authApi => ref.read(authApiProvider);
+  UsersApi get _usersApi => ref.read(usersApiProvider);
   TokenStore get _tokenStore => ref.read(tokenStoreProvider);
 
   Future<void> _restoreSession() async {
@@ -87,6 +89,28 @@ class AuthController extends _$AuthController {
     } on ApiException catch (exception) {
       state = AuthState.error(exception.message);
     }
+  }
+
+  /// Rethrows [ApiException] on failure instead of moving to [AuthError],
+  /// since an [AuthError] state is treated as logged out by the router —
+  /// a failed edit should never boot an authenticated user back to login.
+  Future<void> updateProfile({
+    String? displayName,
+    String? avatarUrl,
+    String? homeCity,
+    String? profileVisibility,
+    String? statsVisibility,
+    bool? allowFriendRequests,
+  }) async {
+    final User updated = await _usersApi.updateMe(
+      displayName: displayName,
+      avatarUrl: avatarUrl,
+      homeCity: homeCity,
+      profileVisibility: profileVisibility,
+      statsVisibility: statsVisibility,
+      allowFriendRequests: allowFriendRequests,
+    );
+    state = AuthState.authenticated(updated);
   }
 
   Future<void> logout() async {
