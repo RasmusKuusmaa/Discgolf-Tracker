@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/geo/haversine.dart';
+import '../../../core/location/location_permission_flow.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/loading_indicator.dart';
 import '../../../domain/models/course.dart';
@@ -24,6 +25,19 @@ class _CoursesScreenState extends ConsumerState<CoursesScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _onSortSelected(
+    CourseSort sort,
+    CourseListController controller,
+  ) async {
+    if (sort == CourseSort.distance) {
+      await ensureLocationPermission(context);
+      if (!mounted) {
+        return;
+      }
+    }
+    await controller.setSort(sort);
   }
 
   @override
@@ -77,7 +91,7 @@ class _CoursesScreenState extends ConsumerState<CoursesScreen> {
                   ],
                   selected: <CourseSort>{state.sort},
                   onSelectionChanged: (Set<CourseSort> selection) =>
-                      controller.setSort(selection.first),
+                      _onSortSelected(selection.first, controller),
                 ),
               ),
             ),
