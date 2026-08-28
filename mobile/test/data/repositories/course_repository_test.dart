@@ -3,6 +3,7 @@ import 'package:discgolf_tracker/data/local/database.dart';
 import 'package:discgolf_tracker/data/local/mutation_queue_repository.dart';
 import 'package:discgolf_tracker/data/remote/courses_api.dart';
 import 'package:discgolf_tracker/data/repositories/course_repository.dart';
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -115,5 +116,31 @@ void main() {
     final results = await repository.nearby(lat: 40.0, lng: -83.0, radiusKm: 10);
 
     expect(results.map((c) => c.id), ['course-1']);
+  });
+
+  test('bestScoreToPar reads the materialized aggregate for a user and layout', () async {
+    final now = DateTime.now().toUtc();
+    await db
+        .into(db.userLayoutStats)
+        .insert(
+          UserLayoutStatsCompanion.insert(
+            id: 'stat-1',
+            createdAt: now,
+            updatedAt: now,
+            userId: 'user-1',
+            layoutId: 'layout-1',
+            bestScoreToPar: const Value(-3),
+            lastPlayedAt: now,
+          ),
+        );
+
+    expect(
+      await repository.bestScoreToPar(userId: 'user-1', layoutId: 'layout-1'),
+      -3,
+    );
+    expect(
+      await repository.bestScoreToPar(userId: 'user-1', layoutId: 'layout-2'),
+      isNull,
+    );
   });
 }

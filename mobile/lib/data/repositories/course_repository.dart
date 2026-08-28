@@ -28,6 +28,17 @@ class CourseRepository extends LocalFirstRepository {
     return row == null ? null : _courseFromRow(row);
   }
 
+  /// Best score-to-par a user has ever posted on a layout, from the
+  /// locally materialized aggregate — `null` if they have never played it
+  /// (or that history hasn't synced down yet).
+  Future<int?> bestScoreToPar({required String userId, required String layoutId}) async {
+    final schema.UserLayoutStat? row = await (db.select(db.userLayoutStats)..where(
+          (t) => t.userId.equals(userId) & t.layoutId.equals(layoutId),
+        ))
+        .getSingleOrNull();
+    return row?.bestScoreToPar;
+  }
+
   Future<List<Course>> search(String query) async {
     final String pattern = '%${query.toLowerCase()}%';
     final List<schema.Course> rows = await (db.select(db.courses)
