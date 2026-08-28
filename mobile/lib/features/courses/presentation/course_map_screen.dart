@@ -16,6 +16,7 @@ import '../../../domain/models/layout.dart';
 const LatLng _fallbackCenter = LatLng(20, 0);
 const double _fallbackZoom = 2;
 const double _locatedZoom = 14;
+const Duration _viewportDebounce = Duration(milliseconds: 600);
 
 class CourseMapScreen extends ConsumerStatefulWidget {
   const CourseMapScreen({super.key});
@@ -29,6 +30,7 @@ class _CourseMapScreenState extends ConsumerState<CourseMapScreen> {
   LatLng? _currentLocation;
   bool _isLocating = true;
   List<Course> _courses = <Course>[];
+  Timer? _viewportDebounceTimer;
 
   @override
   void initState() {
@@ -37,10 +39,40 @@ class _CourseMapScreenState extends ConsumerState<CourseMapScreen> {
     unawaited(_loadCourses());
   }
 
+  @override
+  void dispose() {
+    _viewportDebounceTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadCourses() async {
     final List<Course> courses = await ref.read(courseRepositoryProvider).all();
     if (mounted) {
       setState(() => _courses = courses);
+    }
+  }
+
+  void _onMapPositionChanged() {
+    _viewportDebounceTimer?.cancel();
+    _viewportDebounceTimer = Timer(_viewportDebounce, _refreshViewportCourses);
+  }
+
+  Future<void> _refreshViewportCourses() async {
+    final LatLngBounds bounds = _mapController.camera.visibleBounds;
+    try {
+      final List<Course> courses = await ref
+          .read(courseRepositoryProvider)
+          .refreshByBbox(
+            minLat: bounds.south,
+            minLng: bounds.west,
+            maxLat: bounds.north,
+            maxLng: bounds.east,
+          );
+      if (mounted) {
+        setState(() => _courses = courses);
+      }
+    } catch (_) {
+      // Offline or the server is unreachable — keep showing what's cached.
     }
   }
 
@@ -95,9 +127,11 @@ class _CourseMapScreenState extends ConsumerState<CourseMapScreen> {
         children: [
           FlutterMap(
             mapController: _mapController,
-            options: const MapOptions(
+            options: MapOptions(
               initialCenter: _fallbackCenter,
               initialZoom: _fallbackZoom,
+              onPositionChanged: (camera, hasGesture) =>
+                  _onMapPositionChanged(),
             ),
             children: [
               TileLayer(

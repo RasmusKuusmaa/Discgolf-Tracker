@@ -31,27 +31,50 @@ class CoursesApi {
     required double lng,
     required double radiusKm,
   }) async {
-    final Map<String, dynamic> json = await _get('/courses/nearby', <String, dynamic>{
-      'lat': lat,
-      'lng': lng,
-      'radius_km': radiusKm,
-    });
+    final Map<String, dynamic> json = await _get(
+      '/courses/nearby',
+      <String, dynamic>{'lat': lat, 'lng': lng, 'radius_km': radiusKm},
+    );
+    return (json['items'] as List<dynamic>)
+        .map((e) => _courseFromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<Course>> fetchByBbox({
+    required double minLat,
+    required double minLng,
+    required double maxLat,
+    required double maxLng,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/courses/bbox',
+      <String, dynamic>{
+        'min_lat': minLat,
+        'min_lng': minLng,
+        'max_lat': maxLat,
+        'max_lng': maxLng,
+      },
+    );
     return (json['items'] as List<dynamic>)
         .map((e) => _courseFromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   Future<Course> fetchById(String id) async {
-    final Map<String, dynamic> json = await _get('/courses/$id', const <String, dynamic>{});
+    final Map<String, dynamic> json = await _get(
+      '/courses/$id',
+      const <String, dynamic>{},
+    );
     return _courseFromJson(json);
   }
 
-  Future<Map<String, dynamic>> _get(String path, Map<String, dynamic> queryParameters) async {
+  Future<Map<String, dynamic>> _get(
+    String path,
+    Map<String, dynamic> queryParameters,
+  ) async {
     try {
-      final Response<Map<String, dynamic>> response = await _dio.get<Map<String, dynamic>>(
-        path,
-        queryParameters: queryParameters,
-      );
+      final Response<Map<String, dynamic>> response = await _dio
+          .get<Map<String, dynamic>>(path, queryParameters: queryParameters);
       return response.data!;
     } on DioException catch (exception) {
       throw ApiException.fromDioException(exception);
@@ -60,7 +83,8 @@ class CoursesApi {
 }
 
 Course _courseFromJson(Map<String, dynamic> json) {
-  final Map<String, dynamic> location = json['location'] as Map<String, dynamic>;
+  final Map<String, dynamic> location =
+      json['location'] as Map<String, dynamic>;
   final String courseId = json['id'] as String;
   return Course(
     id: courseId,
@@ -101,8 +125,10 @@ Layout _layoutFromJson(Map<String, dynamic> json, String courseId) {
 }
 
 Hole _holeFromJson(Map<String, dynamic> json, String layoutId) {
-  final Map<String, dynamic>? tee = json['tee_location'] as Map<String, dynamic>?;
-  final Map<String, dynamic>? basket = json['basket_location'] as Map<String, dynamic>?;
+  final Map<String, dynamic>? tee =
+      json['tee_location'] as Map<String, dynamic>?;
+  final Map<String, dynamic>? basket =
+      json['basket_location'] as Map<String, dynamic>?;
   return Hole(
     id: json['id'] as String,
     layoutId: layoutId,

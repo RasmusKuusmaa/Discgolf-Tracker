@@ -73,9 +73,16 @@ void main() {
       'GET /courses': (options) => FakeHttpClientAdapter.json({
         'items': [_pineHollowJson, _farAwayJson],
       }, 200),
+      'GET /courses/bbox': (options) => FakeHttpClientAdapter.json({
+        'items': [_pineHollowJson],
+      }, 200),
     });
     final Dio dio = Dio()..httpClientAdapter = adapter;
-    repository = CourseRepository(db, MutationQueueRepository(db), CoursesApi(dio));
+    repository = CourseRepository(
+      db,
+      MutationQueueRepository(db),
+      CoursesApi(dio),
+    );
   });
 
   tearDown(() => db.close());
@@ -106,41 +113,65 @@ void main() {
     await repository.refreshList();
 
     expect((await repository.search('pine')).map((c) => c.id), ['course-1']);
-    expect((await repository.search('springfield')).map((c) => c.id), ['course-1']);
+    expect((await repository.search('springfield')).map((c) => c.id), [
+      'course-1',
+    ]);
     expect(await repository.search('nonexistent'), isEmpty);
   });
 
-  test('nearby filters by haversine distance and sorts nearest first', () async {
-    await repository.refreshList();
+  test(
+    'nearby filters by haversine distance and sorts nearest first',
+    () async {
+      await repository.refreshList();
 
-    final results = await repository.nearby(lat: 40.0, lng: -83.0, radiusKm: 10);
+      final results = await repository.nearby(
+        lat: 40.0,
+        lng: -83.0,
+        radiusKm: 10,
+      );
+
+      expect(results.map((c) => c.id), ['course-1']);
+    },
+  );
+
+  test('refreshByBbox caches courses returned for the viewport', () async {
+    final results = await repository.refreshByBbox(
+      minLat: 39.0,
+      minLng: -84.0,
+      maxLat: 41.0,
+      maxLng: -82.0,
+    );
 
     expect(results.map((c) => c.id), ['course-1']);
+    expect(await repository.byId('course-1'), isNotNull);
   });
 
-  test('bestScoreToPar reads the materialized aggregate for a user and layout', () async {
-    final now = DateTime.now().toUtc();
-    await db
-        .into(db.userLayoutStats)
-        .insert(
-          UserLayoutStatsCompanion.insert(
-            id: 'stat-1',
-            createdAt: now,
-            updatedAt: now,
-            userId: 'user-1',
-            layoutId: 'layout-1',
-            bestScoreToPar: const Value(-3),
-            lastPlayedAt: now,
-          ),
-        );
+  test(
+    'bestScoreToPar reads the materialized aggregate for a user and layout',
+    () async {
+      final now = DateTime.now().toUtc();
+      await db
+          .into(db.userLayoutStats)
+          .insert(
+            UserLayoutStatsCompanion.insert(
+              id: 'stat-1',
+              createdAt: now,
+              updatedAt: now,
+              userId: 'user-1',
+              layoutId: 'layout-1',
+              bestScoreToPar: const Value(-3),
+              lastPlayedAt: now,
+            ),
+          );
 
-    expect(
-      await repository.bestScoreToPar(userId: 'user-1', layoutId: 'layout-1'),
-      -3,
-    );
-    expect(
-      await repository.bestScoreToPar(userId: 'user-1', layoutId: 'layout-2'),
-      isNull,
-    );
-  });
+      expect(
+        await repository.bestScoreToPar(userId: 'user-1', layoutId: 'layout-1'),
+        -3,
+      );
+      expect(
+        await repository.bestScoreToPar(userId: 'user-1', layoutId: 'layout-2'),
+        isNull,
+      );
+    },
+  );
 }

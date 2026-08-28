@@ -31,19 +31,26 @@ class CourseRepository extends LocalFirstRepository {
   /// Best score-to-par a user has ever posted on a layout, from the
   /// locally materialized aggregate — `null` if they have never played it
   /// (or that history hasn't synced down yet).
-  Future<int?> bestScoreToPar({required String userId, required String layoutId}) async {
-    final schema.UserLayoutStat? row = await (db.select(db.userLayoutStats)..where(
-          (t) => t.userId.equals(userId) & t.layoutId.equals(layoutId),
-        ))
-        .getSingleOrNull();
+  Future<int?> bestScoreToPar({
+    required String userId,
+    required String layoutId,
+  }) async {
+    final schema.UserLayoutStat? row =
+        await (db.select(db.userLayoutStats)..where(
+              (t) => t.userId.equals(userId) & t.layoutId.equals(layoutId),
+            ))
+            .getSingleOrNull();
     return row?.bestScoreToPar;
   }
 
   Future<List<Course>> search(String query) async {
     final String pattern = '%${query.toLowerCase()}%';
-    final List<schema.Course> rows = await (db.select(db.courses)
-          ..where((t) => t.name.lower().like(pattern) | t.city.lower().like(pattern)))
-        .get();
+    final List<schema.Course> rows =
+        await (db.select(db.courses)..where(
+              (t) =>
+                  t.name.lower().like(pattern) | t.city.lower().like(pattern),
+            ))
+            .get();
     return Future.wait(rows.map(_courseFromRow));
   }
 
@@ -58,7 +65,10 @@ class CourseRepository extends LocalFirstRepository {
     final List<schema.Course> rows = await db.select(db.courses).get();
     final List<(schema.Course, double)> withDistance =
         rows
-            .map((row) => (row, haversineKm(lat, lng, row.latitude, row.longitude)))
+            .map(
+              (row) =>
+                  (row, haversineKm(lat, lng, row.latitude, row.longitude)),
+            )
             .where((entry) => entry.$2 <= radiusKm)
             .toList()
           ..sort((a, b) => a.$2.compareTo(b.$2));
@@ -66,7 +76,10 @@ class CourseRepository extends LocalFirstRepository {
   }
 
   Future<List<Course>> refreshList({String? query, String? country}) async {
-    final List<Course> courses = await _coursesApi.fetchList(query: query, country: country);
+    final List<Course> courses = await _coursesApi.fetchList(
+      query: query,
+      country: country,
+    );
     await _cacheAll(courses);
     return courses;
   }
@@ -86,6 +99,22 @@ class CourseRepository extends LocalFirstRepository {
       lat: lat,
       lng: lng,
       radiusKm: radiusKm,
+    );
+    await _cacheAll(courses);
+    return courses;
+  }
+
+  Future<List<Course>> refreshByBbox({
+    required double minLat,
+    required double minLng,
+    required double maxLat,
+    required double maxLng,
+  }) async {
+    final List<Course> courses = await _coursesApi.fetchByBbox(
+      minLat: minLat,
+      minLng: minLng,
+      maxLat: maxLat,
+      maxLng: maxLng,
     );
     await _cacheAll(courses);
     return courses;
@@ -164,7 +193,9 @@ class CourseRepository extends LocalFirstRepository {
     final List<schema.Layout> layoutRows = await (db.select(
       db.layouts,
     )..where((t) => t.courseId.equals(row.id))).get();
-    final List<Layout> layouts = await Future.wait(layoutRows.map(_layoutFromRow));
+    final List<Layout> layouts = await Future.wait(
+      layoutRows.map(_layoutFromRow),
+    );
     return Course(
       id: row.id,
       name: row.name,
