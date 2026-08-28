@@ -8,6 +8,7 @@ import '../../../domain/models/hole.dart';
 import '../../../domain/models/layout.dart';
 import '../providers/course_detail_controller.dart';
 import '../providers/course_detail_state.dart';
+import 'hole_map_sheet.dart';
 
 class CourseDetailScreen extends ConsumerWidget {
   const CourseDetailScreen({super.key, required this.courseId});
@@ -231,11 +232,24 @@ class _HoleTable extends StatelessWidget {
                     ? '—'
                     : '${hole.distanceM!.round()} m',
                 style: textTheme.bodyMedium,
+                onTap: _hasCoordinates(hole)
+                    ? () => showModalBottomSheet<void>(
+                        context: context,
+                        builder: (context) => HoleMapSheet(hole: hole),
+                      )
+                    : null,
               ),
           ],
         ),
       ),
     );
+  }
+
+  bool _hasCoordinates(Hole hole) {
+    return hole.teeLatitude != null &&
+        hole.teeLongitude != null &&
+        hole.basketLatitude != null &&
+        hole.basketLongitude != null;
   }
 }
 
@@ -245,26 +259,41 @@ class _HoleRow extends StatelessWidget {
     required this.par,
     required this.distance,
     this.style,
+    this.onTap,
   });
 
   final String number;
   final String par;
   final String distance;
   final TextStyle? style;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Expanded(flex: 2, child: Text(number, style: style)),
-          Expanded(flex: 2, child: Text(par, style: style)),
-          Expanded(
-            flex: 3,
-            child: Text(distance, style: style, textAlign: TextAlign.end),
-          ),
-        ],
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Expanded(flex: 2, child: Text(number, style: style)),
+            Expanded(flex: 2, child: Text(par, style: style)),
+            Expanded(
+              flex: 3,
+              child: Text(distance, style: style, textAlign: TextAlign.end),
+            ),
+            SizedBox(
+              width: 24,
+              child: onTap == null
+                  ? null
+                  : Icon(
+                      Icons.map_outlined,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
