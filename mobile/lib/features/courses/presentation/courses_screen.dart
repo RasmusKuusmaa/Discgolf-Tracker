@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/geo/haversine.dart';
 import '../../../core/widgets/empty_state.dart';
@@ -28,7 +29,9 @@ class _CoursesScreenState extends ConsumerState<CoursesScreen> {
   @override
   Widget build(BuildContext context) {
     final CourseListState state = ref.watch(courseListControllerProvider);
-    final CourseListController controller = ref.read(courseListControllerProvider.notifier);
+    final CourseListController controller = ref.read(
+      courseListControllerProvider.notifier,
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Courses')),
@@ -104,7 +107,8 @@ class _CoursesScreenState extends ConsumerState<CoursesScreen> {
       itemCount: state.courses.length,
       itemBuilder: (context, index) {
         final Course course = state.courses[index];
-        final double? distanceKm = state.userLatitude == null || state.userLongitude == null
+        final double? distanceKm =
+            state.userLatitude == null || state.userLongitude == null
             ? null
             : haversineKm(
                 state.userLatitude!,
@@ -138,62 +142,67 @@ class _CourseListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final TextTheme textTheme = Theme.of(context).textTheme;
-    final String location = [course.city, course.country]
-        .where((part) => part != null && part.isNotEmpty)
-        .join(', ');
+    final String location = [
+      course.city,
+      course.country,
+    ].where((part) => part != null && part.isNotEmpty).join(', ');
     final Layout? layout = _primaryLayout;
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(course.name, style: textTheme.titleMedium),
-                ),
-                if (distanceKm != null) ...[
-                  const SizedBox(width: 8),
-                  _Chip(
-                    icon: Icons.near_me_outlined,
-                    label: _formatDistance(distanceKm!),
-                    colorScheme: colorScheme,
-                  ),
-                ],
-              ],
-            ),
-            if (location.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                location,
-                style: textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-            if (layout != null) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.push('/courses/${course.id}'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _Chip(
-                    icon: Icons.flag_outlined,
-                    label: '${layout.holeCount} holes',
-                    colorScheme: colorScheme,
+                  Expanded(
+                    child: Text(course.name, style: textTheme.titleMedium),
                   ),
-                  _Chip(
-                    icon: Icons.sports_golf_outlined,
-                    label: 'Par ${layout.parTotal}',
-                    colorScheme: colorScheme,
-                  ),
+                  if (distanceKm != null) ...[
+                    const SizedBox(width: 8),
+                    _Chip(
+                      icon: Icons.near_me_outlined,
+                      label: _formatDistance(distanceKm!),
+                      colorScheme: colorScheme,
+                    ),
+                  ],
                 ],
               ),
+              if (location.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  location,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              if (layout != null) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _Chip(
+                      icon: Icons.flag_outlined,
+                      label: '${layout.holeCount} holes',
+                      colorScheme: colorScheme,
+                    ),
+                    _Chip(
+                      icon: Icons.sports_golf_outlined,
+                      label: 'Par ${layout.parTotal}',
+                      colorScheme: colorScheme,
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -208,7 +217,11 @@ class _CourseListItem extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.icon, required this.label, required this.colorScheme});
+  const _Chip({
+    required this.icon,
+    required this.label,
+    required this.colorScheme,
+  });
 
   final IconData icon;
   final String label;
@@ -229,9 +242,8 @@ class _Chip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: colorScheme.onSecondaryContainer,
-            ),
+            style: Theme.of(context).textTheme.labelMedium
+                ?.copyWith(color: colorScheme.onSecondaryContainer),
           ),
         ],
       ),

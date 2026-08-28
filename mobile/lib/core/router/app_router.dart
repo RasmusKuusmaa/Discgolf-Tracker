@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
 import '../../features/auth/presentation/splash_screen.dart';
+import '../../features/courses/presentation/course_detail_screen.dart';
 import '../../features/courses/presentation/courses_screen.dart';
 import '../../features/friends/presentation/friends_screen.dart';
 import '../../features/play/presentation/play_screen.dart';
@@ -65,6 +66,14 @@ GoRouter buildAppRouter(RouterAuthNotifier authNotifier) {
               GoRoute(
                 path: '/courses',
                 builder: (context, state) => const CoursesScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) => CourseDetailScreen(
+                      courseId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
