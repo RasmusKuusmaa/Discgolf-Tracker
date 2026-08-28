@@ -12,11 +12,21 @@ abstract class CourseCreationState with _$CourseCreationState {
     String? country,
     double? latitude,
     double? longitude,
+    @Default('') String layoutName,
+    @Default(18) int holeCount,
   }) = _CourseCreationState;
 }
+
+const int minHoleCount = 1;
+const int maxHoleCount = 27;
 
 extension CourseCreationStateX on CourseCreationState {
   bool get hasLocation => latitude != null && longitude != null;
 
   bool get canLeaveBasicsStep => name.trim().isNotEmpty && hasLocation;
+
+  bool get canLeaveLayoutStep =>
+      layoutName.trim().isNotEmpty &&
+      holeCount >= minHoleCount &&
+      holeCount <= maxHoleCount;
 }

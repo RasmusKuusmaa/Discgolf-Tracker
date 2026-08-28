@@ -24,9 +24,11 @@ class CourseCreationScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('New course')),
       body: SafeArea(
-        child: state.currentStep == 0
-            ? const _BasicsStep()
-            : const Center(child: Text('Layout setup coming soon')),
+        child: switch (state.currentStep) {
+          0 => const _BasicsStep(),
+          1 => const _LayoutStep(),
+          _ => const Center(child: Text('Hole editor coming soon')),
+        },
       ),
     );
   }
@@ -233,6 +235,103 @@ class _BasicsStepState extends ConsumerState<_BasicsStep> {
                 : null,
             child: const Text('Next: Layout'),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LayoutStep extends ConsumerStatefulWidget {
+  const _LayoutStep();
+
+  @override
+  ConsumerState<_LayoutStep> createState() => _LayoutStepState();
+}
+
+class _LayoutStepState extends ConsumerState<_LayoutStep> {
+  late final TextEditingController _nameController = TextEditingController(
+    text: ref.read(courseCreationControllerProvider).layoutName,
+  );
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _sync({String? layoutName, int? holeCount}) {
+    final CourseCreationState current = ref.read(
+      courseCreationControllerProvider,
+    );
+    ref
+        .read(courseCreationControllerProvider.notifier)
+        .updateLayout(
+          layoutName: layoutName ?? current.layoutName,
+          holeCount: holeCount ?? current.holeCount,
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final CourseCreationState state = ref.watch(
+      courseCreationControllerProvider,
+    );
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        TextField(
+          controller: _nameController,
+          onChanged: (value) => _sync(layoutName: value),
+          decoration: const InputDecoration(labelText: 'Layout name'),
+        ),
+        const SizedBox(height: 24),
+        Text('Number of holes', style: textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            IconButton.outlined(
+              onPressed: state.holeCount > minHoleCount
+                  ? () => _sync(holeCount: state.holeCount - 1)
+                  : null,
+              icon: const Icon(Icons.remove),
+            ),
+            Expanded(
+              child: Text(
+                '${state.holeCount}',
+                textAlign: TextAlign.center,
+                style: textTheme.headlineSmall,
+              ),
+            ),
+            IconButton.outlined(
+              onPressed: state.holeCount < maxHoleCount
+                  ? () => _sync(holeCount: state.holeCount + 1)
+                  : null,
+              icon: const Icon(Icons.add),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            TextButton(
+              onPressed: () =>
+                  ref.read(courseCreationControllerProvider.notifier).goBack(),
+              child: const Text('Back'),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: state.canLeaveLayoutStep
+                    ? () => ref
+                          .read(courseCreationControllerProvider.notifier)
+                          .completeLayoutStep()
+                    : null,
+                child: const Text('Next: Holes'),
+              ),
+            ),
+          ],
         ),
       ],
     );

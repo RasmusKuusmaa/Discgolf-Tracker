@@ -36,4 +36,21 @@ class CourseCreationController extends _$CourseCreationController {
     }
     state = state.copyWith(currentStep: 1);
   }
+
+  void updateLayout({required String layoutName, required int holeCount}) {
+    state = state.copyWith(layoutName: layoutName, holeCount: holeCount);
+  }
+
+  void completeLayoutStep() {
+    if (!state.canLeaveLayoutStep) {
+      return;
+    }
+    state = state.copyWith(currentStep: 2);
+  }
+
+  void goBack() {
+    if (state.currentStep > 0) {
+      state = state.copyWith(currentStep: state.currentStep - 1);
+    }
+  }
 }
