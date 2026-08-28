@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/location/location_permission_flow.dart';
 import '../../../data/local/local_providers.dart';
+import '../../../data/local/map_viewport_cache.dart';
 import '../../../domain/models/course.dart';
 import '../../../domain/models/layout.dart';
 
@@ -35,8 +36,18 @@ class _CourseMapScreenState extends ConsumerState<CourseMapScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_restoreViewport());
     unawaited(_locate());
     unawaited(_loadCourses());
+  }
+
+  Future<void> _restoreViewport() async {
+    final CachedViewport? cached = await ref
+        .read(mapViewportCacheProvider)
+        .load();
+    if (cached != null && mounted) {
+      _mapController.move(LatLng(cached.lat, cached.lng), cached.zoom);
+    }
   }
 
   @override
@@ -54,7 +65,21 @@ class _CourseMapScreenState extends ConsumerState<CourseMapScreen> {
 
   void _onMapPositionChanged() {
     _viewportDebounceTimer?.cancel();
-    _viewportDebounceTimer = Timer(_viewportDebounce, _refreshViewportCourses);
+    _viewportDebounceTimer = Timer(_viewportDebounce, _onViewportSettled);
+  }
+
+  Future<void> _onViewportSettled() async {
+    final LatLng center = _mapController.camera.center;
+    unawaited(
+      ref
+          .read(mapViewportCacheProvider)
+          .save(
+            lat: center.latitude,
+            lng: center.longitude,
+            zoom: _mapController.camera.zoom,
+          ),
+    );
+    await _refreshViewportCourses();
   }
 
   Future<void> _refreshViewportCourses() async {
