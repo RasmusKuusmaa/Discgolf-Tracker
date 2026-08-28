@@ -4,6 +4,7 @@ import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
 import '../../features/auth/presentation/splash_screen.dart';
 import '../../features/courses/presentation/course_detail_screen.dart';
+import '../../features/courses/presentation/course_map_screen.dart';
 import '../../features/courses/presentation/courses_screen.dart';
 import '../../features/friends/presentation/friends_screen.dart';
 import '../../features/play/presentation/play_screen.dart';
@@ -67,6 +68,10 @@ GoRouter buildAppRouter(RouterAuthNotifier authNotifier) {
                 path: '/courses',
                 builder: (context, state) => const CoursesScreen(),
                 routes: [
+                  GoRoute(
+                    path: 'map',
+                    builder: (context, state) => const CourseMapScreen(),
+                  ),
                   GoRoute(
                     path: ':id',
                     builder: (context, state) => CourseDetailScreen(

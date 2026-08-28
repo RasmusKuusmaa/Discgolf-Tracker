@@ -48,7 +48,16 @@ class _CoursesScreenState extends ConsumerState<CoursesScreen> {
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Courses')),
+      appBar: AppBar(
+        title: const Text('Courses'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.map_outlined),
+            tooltip: 'Map',
+            onPressed: () => context.push('/courses/map'),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
