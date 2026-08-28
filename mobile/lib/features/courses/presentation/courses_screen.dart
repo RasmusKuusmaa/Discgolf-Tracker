@@ -109,6 +109,11 @@ class _CoursesScreenState extends ConsumerState<CoursesScreen> {
           ],
         ),
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push('/courses/new'),
+        tooltip: 'Add course',
+        child: const Icon(Icons.add),
+      ),
     );
   }
 
