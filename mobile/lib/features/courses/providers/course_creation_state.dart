@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'hole_draft.dart';
+
 part 'course_creation_state.freezed.dart';
 
 @freezed
@@ -14,6 +16,7 @@ abstract class CourseCreationState with _$CourseCreationState {
     double? longitude,
     @Default('') String layoutName,
     @Default(18) int holeCount,
+    @Default(<HoleDraft>[]) List<HoleDraft> holes,
   }) = _CourseCreationState;
 }
 

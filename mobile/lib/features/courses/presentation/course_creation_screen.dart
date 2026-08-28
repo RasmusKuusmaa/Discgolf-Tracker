@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/location/location_permission_flow.dart';
 import '../providers/course_creation_controller.dart';
 import '../providers/course_creation_state.dart';
+import '../providers/hole_draft.dart';
 
 const LatLng _defaultMapCenter = LatLng(20, 0);
 const double _defaultMapZoom = 2;
@@ -27,7 +28,8 @@ class CourseCreationScreen extends ConsumerWidget {
         child: switch (state.currentStep) {
           0 => const _BasicsStep(),
           1 => const _LayoutStep(),
-          _ => const Center(child: Text('Hole editor coming soon')),
+          2 => const _HolesStep(),
+          _ => const Center(child: Text('Review coming soon')),
         },
       ),
     );
@@ -333,6 +335,269 @@ class _LayoutStepState extends ConsumerState<_LayoutStep> {
             ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _HolesStep extends ConsumerWidget {
+  const _HolesStep();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final CourseCreationState state = ref.watch(
+      courseCreationControllerProvider,
+    );
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            itemCount: state.holes.length,
+            itemBuilder: (context, index) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _HoleEditorCard(hole: state.holes[index]),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Row(
+            children: [
+              TextButton(
+                onPressed: () => ref
+                    .read(courseCreationControllerProvider.notifier)
+                    .goBack(),
+                child: const Text('Back'),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () => ref
+                      .read(courseCreationControllerProvider.notifier)
+                      .completeHolesStep(),
+                  child: const Text('Next: Review'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HoleEditorCard extends ConsumerStatefulWidget {
+  const _HoleEditorCard({required this.hole});
+
+  final HoleDraft hole;
+
+  @override
+  ConsumerState<_HoleEditorCard> createState() => _HoleEditorCardState();
+}
+
+class _HoleEditorCardState extends ConsumerState<_HoleEditorCard> {
+  late final TextEditingController _distanceController = TextEditingController(
+    text: widget.hole.distanceM == null
+        ? ''
+        : widget.hole.distanceM!.round().toString(),
+  );
+  bool _isCapturingTee = false;
+  bool _isCapturingBasket = false;
+
+  @override
+  void dispose() {
+    _distanceController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _capture({required bool isTee}) async {
+    setState(() {
+      if (isTee) {
+        _isCapturingTee = true;
+      } else {
+        _isCapturingBasket = true;
+      }
+    });
+    final bool granted = await ensureLocationPermission(
+      context,
+      rationale:
+          'Allow location access to capture GPS coordinates for this hole.',
+    );
+    if (granted) {
+      try {
+        final Position position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.best,
+          ),
+        );
+        final CourseCreationController controller = ref.read(
+          courseCreationControllerProvider.notifier,
+        );
+        if (isTee) {
+          controller.captureTee(
+            widget.hole.number,
+            latitude: position.latitude,
+            longitude: position.longitude,
+            accuracyM: position.accuracy,
+          );
+        } else {
+          controller.captureBasket(
+            widget.hole.number,
+            latitude: position.latitude,
+            longitude: position.longitude,
+            accuracyM: position.accuracy,
+          );
+        }
+      } catch (_) {
+        // No GPS fix available — the hole just stays uncaptured.
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _isCapturingTee = false;
+        _isCapturingBasket = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final CourseCreationController controller = ref.read(
+      courseCreationControllerProvider.notifier,
+    );
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Hole ${widget.hole.number}', style: textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Text('Par', style: textTheme.bodyMedium),
+                const Spacer(),
+                IconButton.outlined(
+                  onPressed: widget.hole.par > 1
+                      ? () => controller.updateHolePar(
+                          widget.hole.number,
+                          widget.hole.par - 1,
+                        )
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
+                SizedBox(
+                  width: 32,
+                  child: Text(
+                    '${widget.hole.par}',
+                    textAlign: TextAlign.center,
+                    style: textTheme.titleMedium,
+                  ),
+                ),
+                IconButton.outlined(
+                  onPressed: widget.hole.par < 10
+                      ? () => controller.updateHolePar(
+                          widget.hole.number,
+                          widget.hole.par + 1,
+                        )
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _distanceController,
+              keyboardType: TextInputType.number,
+              onChanged: (value) => controller.updateHoleDistance(
+                widget.hole.number,
+                double.tryParse(value),
+              ),
+              decoration: const InputDecoration(labelText: 'Distance (m)'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _CaptureButton(
+                    label: 'Capture tee',
+                    isCaptured: widget.hole.hasTee,
+                    accuracyM: widget.hole.teeAccuracyM,
+                    isLoading: _isCapturingTee,
+                    onPressed: () => _capture(isTee: true),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _CaptureButton(
+                    label: 'Capture basket',
+                    isCaptured: widget.hole.hasBasket,
+                    accuracyM: widget.hole.basketAccuracyM,
+                    isLoading: _isCapturingBasket,
+                    onPressed: () => _capture(isTee: false),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CaptureButton extends StatelessWidget {
+  const _CaptureButton({
+    required this.label,
+    required this.isCaptured,
+    required this.accuracyM,
+    required this.isLoading,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool isCaptured;
+  final double? accuracyM;
+  final bool isLoading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          onPressed: isLoading ? null : onPressed,
+          icon: isLoading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(
+                  isCaptured ? Icons.check_circle : Icons.gps_fixed,
+                  size: 16,
+                ),
+          label: Text(label, style: Theme.of(context).textTheme.labelMedium),
+        ),
+        if (isCaptured)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              accuracyM == null
+                  ? 'Captured'
+                  : 'Captured · ±${accuracyM!.round()} m',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: colorScheme.onSurfaceVariant),
+            ),
+          ),
       ],
     );
   }

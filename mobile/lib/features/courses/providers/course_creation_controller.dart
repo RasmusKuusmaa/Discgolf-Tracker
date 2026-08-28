@@ -1,6 +1,7 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'course_creation_state.dart';
+import 'hole_draft.dart';
 
 part 'course_creation_controller.g.dart';
 
@@ -45,7 +46,67 @@ class CourseCreationController extends _$CourseCreationController {
     if (!state.canLeaveLayoutStep) {
       return;
     }
-    state = state.copyWith(currentStep: 2);
+    final List<HoleDraft> holes = List.generate(state.holeCount, (index) {
+      final int number = index + 1;
+      return state.holes.firstWhere(
+        (hole) => hole.number == number,
+        orElse: () => HoleDraft(number: number),
+      );
+    });
+    state = state.copyWith(currentStep: 2, holes: holes);
+  }
+
+  void updateHolePar(int number, int par) {
+    _updateHole(number, (hole) => hole.copyWith(par: par));
+  }
+
+  void updateHoleDistance(int number, double? distanceM) {
+    _updateHole(number, (hole) => hole.copyWith(distanceM: distanceM));
+  }
+
+  void captureTee(
+    int number, {
+    required double latitude,
+    required double longitude,
+    double? accuracyM,
+  }) {
+    _updateHole(
+      number,
+      (hole) => hole.copyWith(
+        teeLatitude: latitude,
+        teeLongitude: longitude,
+        teeAccuracyM: accuracyM,
+      ),
+    );
+  }
+
+  void captureBasket(
+    int number, {
+    required double latitude,
+    required double longitude,
+    double? accuracyM,
+  }) {
+    _updateHole(
+      number,
+      (hole) => hole.copyWith(
+        basketLatitude: latitude,
+        basketLongitude: longitude,
+        basketAccuracyM: accuracyM,
+      ),
+    );
+  }
+
+  void _updateHole(int number, HoleDraft Function(HoleDraft hole) update) {
+    state = state.copyWith(
+      holes: [
+        for (final HoleDraft hole in state.holes)
+          if (hole.number == number) update(hole) else hole,
+      ],
+    );
+  }
+
+  void completeHolesStep() {
+    state = state.copyWith(currentStep: 3);
   }
 
   void goBack() {
