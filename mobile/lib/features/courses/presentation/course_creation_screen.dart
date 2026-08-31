@@ -399,16 +399,30 @@ class _HoleEditorCard extends ConsumerStatefulWidget {
 
 class _HoleEditorCardState extends ConsumerState<_HoleEditorCard> {
   late final TextEditingController _distanceController = TextEditingController(
-    text: widget.hole.distanceM == null
-        ? ''
-        : widget.hole.distanceM!.round().toString(),
+    text: _formatDistance(widget.hole.distanceM),
   );
+  final FocusNode _distanceFocusNode = FocusNode();
   bool _isCapturingTee = false;
   bool _isCapturingBasket = false;
+
+  static String _formatDistance(double? distanceM) =>
+      distanceM == null ? '' : distanceM.round().toString();
+
+  @override
+  void didUpdateWidget(_HoleEditorCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // GPS capture can auto-fill the distance while the field isn't focused;
+    // don't touch the text while the user is actively typing in it.
+    if (!_distanceFocusNode.hasFocus &&
+        oldWidget.hole.distanceM != widget.hole.distanceM) {
+      _distanceController.text = _formatDistance(widget.hole.distanceM);
+    }
+  }
 
   @override
   void dispose() {
     _distanceController.dispose();
+    _distanceFocusNode.dispose();
     super.dispose();
   }
 
@@ -513,12 +527,17 @@ class _HoleEditorCardState extends ConsumerState<_HoleEditorCard> {
             const SizedBox(height: 12),
             TextField(
               controller: _distanceController,
+              focusNode: _distanceFocusNode,
               keyboardType: TextInputType.number,
               onChanged: (value) => controller.updateHoleDistance(
                 widget.hole.number,
                 double.tryParse(value),
               ),
-              decoration: const InputDecoration(labelText: 'Distance (m)'),
+              decoration: const InputDecoration(
+                labelText: 'Distance (m)',
+                helperText:
+                    'Auto-filled once tee and basket are captured — edit to override',
+              ),
             ),
             const SizedBox(height: 12),
             Row(

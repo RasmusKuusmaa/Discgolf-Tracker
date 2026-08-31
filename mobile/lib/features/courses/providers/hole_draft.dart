@@ -11,6 +11,7 @@ abstract class HoleDraft with _$HoleDraft {
     required int number,
     @Default(3) int par,
     double? distanceM,
+    @Default(false) bool distanceIsManual,
     double? teeLatitude,
     double? teeLongitude,
     double? teeAccuracyM,

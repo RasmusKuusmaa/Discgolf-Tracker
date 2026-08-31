@@ -1,5 +1,6 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../core/geo/haversine.dart';
 import 'course_creation_state.dart';
 import 'hole_draft.dart';
 
@@ -61,7 +62,10 @@ class CourseCreationController extends _$CourseCreationController {
   }
 
   void updateHoleDistance(int number, double? distanceM) {
-    _updateHole(number, (hole) => hole.copyWith(distanceM: distanceM));
+    _updateHole(
+      number,
+      (hole) => hole.copyWith(distanceM: distanceM, distanceIsManual: true),
+    );
   }
 
   void captureTee(
@@ -72,10 +76,12 @@ class CourseCreationController extends _$CourseCreationController {
   }) {
     _updateHole(
       number,
-      (hole) => hole.copyWith(
-        teeLatitude: latitude,
-        teeLongitude: longitude,
-        teeAccuracyM: accuracyM,
+      (hole) => _autoFillDistance(
+        hole.copyWith(
+          teeLatitude: latitude,
+          teeLongitude: longitude,
+          teeAccuracyM: accuracyM,
+        ),
       ),
     );
   }
@@ -88,12 +94,31 @@ class CourseCreationController extends _$CourseCreationController {
   }) {
     _updateHole(
       number,
-      (hole) => hole.copyWith(
-        basketLatitude: latitude,
-        basketLongitude: longitude,
-        basketAccuracyM: accuracyM,
+      (hole) => _autoFillDistance(
+        hole.copyWith(
+          basketLatitude: latitude,
+          basketLongitude: longitude,
+          basketAccuracyM: accuracyM,
+        ),
       ),
     );
+  }
+
+  /// Recomputes distance from the tee/basket coordinates once both are
+  /// captured, unless the user has already typed their own value.
+  HoleDraft _autoFillDistance(HoleDraft hole) {
+    if (hole.distanceIsManual || !hole.hasTee || !hole.hasBasket) {
+      return hole;
+    }
+    final double distanceM =
+        haversineKm(
+          hole.teeLatitude!,
+          hole.teeLongitude!,
+          hole.basketLatitude!,
+          hole.basketLongitude!,
+        ) *
+        1000;
+    return hole.copyWith(distanceM: distanceM);
   }
 
   void _updateHole(int number, HoleDraft Function(HoleDraft hole) update) {
